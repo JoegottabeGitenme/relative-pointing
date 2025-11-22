@@ -67,8 +67,11 @@ function TaskItem({ task, onDeleteTask = null }) {
   }
 
   const handleDelete = (e) => {
+    console.log('Delete button clicked for task:', task.id);
+    e.preventDefault();
     e.stopPropagation();
     if (onDeleteTask) {
+      console.log('Calling onDeleteTask with taskId:', task.id);
       onDeleteTask(task.id);
     }
   };
@@ -79,7 +82,7 @@ function TaskItem({ task, onDeleteTask = null }) {
       style={style}
       {...attributes}
       {...listeners}
-      className={`bg-white dark:bg-gray-700 p-3 rounded shadow-sm cursor-grab active:cursor-grabbing transition-opacity group ${
+      className={`bg-white dark:bg-gray-700 p-3 rounded shadow-sm cursor-grab active:cursor-grabbing transition-opacity group relative ${
         isDragging ? 'opacity-30 shadow-lg' : 'hover:shadow-md'
       }`}
     >
@@ -90,17 +93,21 @@ function TaskItem({ task, onDeleteTask = null }) {
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 break-words">{task.description}</p>
           )}
         </div>
-        {onDeleteTask && (
-          <button
-            onClick={handleDelete}
-            className="flex-shrink-0 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-            title="Delete task"
-            aria-label="Delete task"
-          >
-            ✕
-          </button>
-        )}
       </div>
+      {onDeleteTask && (
+        <button
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onClick={handleDelete}
+          className="absolute top-1 right-1 flex-shrink-0 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20"
+          title="Delete task"
+          aria-label="Delete task"
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 }
