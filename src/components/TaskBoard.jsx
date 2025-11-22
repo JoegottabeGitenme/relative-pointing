@@ -16,10 +16,10 @@ import {
 import { useSession } from '../hooks/useSession';
 import { useTurnManager } from '../hooks/useTurnManager';
 import APIService from '../services/api';
-import CSVUploader from './CSVUploader';
 import Column from './Column';
 import ParticipantList from './ParticipantList';
 import CreateTaskModal from './CreateTaskModal';
+import DropZoneOverlay from './DropZoneOverlay';
 import { useTheme } from '../hooks/useTheme';
 
 function CreateColumnDropZone({ zoneId = 'new-column', isFirst = false }) {
@@ -297,15 +297,6 @@ function TaskBoard({ user }) {
         </div>
       )}
 
-      {/* CSV Uploader (Creator Only) */}
-      {isCreator && (
-        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 py-4">
-          <div className="max-w-7xl mx-auto px-4">
-            <CSVUploader roomCode={roomCode} />
-          </div>
-        </div>
-      )}
-
       {/* Complexity Header */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 py-4">
         <div className="flex items-center justify-center gap-2 px-4">
@@ -431,6 +422,14 @@ function TaskBoard({ user }) {
         />
       )}
 
+      {/* Drop Zone Overlay for CSV import */}
+      <DropZoneOverlay
+        roomCode={roomCode}
+        isCreator={isCreator}
+        onTasksImported={() => {
+          // Task list will refresh automatically via useSession hook
+        }}
+      />
     </div>
   );
 }
