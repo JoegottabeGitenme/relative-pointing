@@ -19,7 +19,6 @@ import APIService from '../services/api';
 import CSVUploader from './CSVUploader';
 import Column from './Column';
 import ParticipantList from './ParticipantList';
-import SessionComplete from './SessionComplete';
 import CreateTaskModal from './CreateTaskModal';
 import { useTheme } from '../hooks/useTheme';
 
@@ -54,7 +53,6 @@ function TaskBoard({ user }) {
 
   const { isDark, toggleTheme } = useTheme();
 
-  const [showComplete, setShowComplete] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [copied, setCopied] = useState(false);
   const [activeId, setActiveId] = useState(null);
@@ -380,18 +378,6 @@ function TaskBoard({ user }) {
 
           {/* Tasks Queue Panel - Right Sidebar */}
           <div className="w-80 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden">
-            {/* Create Task Button */}
-            {isCreator && (
-              <div className="p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
-                <button
-                  onClick={() => setShowCreateTask(true)}
-                  className="w-full px-3 py-2 bg-green-600 dark:bg-green-700 text-white rounded-lg hover:bg-green-700 dark:hover:bg-green-600 transition-colors font-medium text-sm"
-                  title="Add a new task manually"
-                >
-                  + Create Task
-                </button>
-              </div>
-            )}
             <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-1 overflow-y-auto">
               <Column
                 columnId="unsorted"
@@ -401,6 +387,18 @@ function TaskBoard({ user }) {
                 variant="tasks"
               />
             </div>
+            {/* Create Task Button */}
+            {isCreator && (
+              <div className="p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
+                <button
+                  onClick={() => setShowCreateTask(true)}
+                  className="w-full px-3 py-2 bg-green-600 dark:bg-green-700 text-white rounded-lg hover:bg-green-700 dark:hover:bg-green-600 transition-colors font-medium text-sm"
+                  title="Add a new task manually"
+                >
+                  + Create Task
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -413,20 +411,6 @@ function TaskBoard({ user }) {
         </DragOverlay>
       </DndContext>
 
-      {/* Complete Session Button */}
-      {isCreator && (
-        <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-4">
-          <div className="max-w-7xl mx-auto flex justify-end">
-            <button
-              onClick={() => setShowComplete(true)}
-              className="bg-green-600 dark:bg-green-700 text-white px-6 py-2 rounded-lg hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
-            >
-              Complete Session
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Create Task Modal */}
       {showCreateTask && (
         <CreateTaskModal
@@ -436,13 +420,6 @@ function TaskBoard({ user }) {
         />
       )}
 
-      {/* Session Complete Modal */}
-      {showComplete && (
-        <SessionComplete
-          roomCode={roomCode}
-          onClose={() => setShowComplete(false)}
-        />
-      )}
     </div>
   );
 }
