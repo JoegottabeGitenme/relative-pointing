@@ -9,9 +9,26 @@ import TaskBoard from './components/TaskBoard';
 import { ThemeProvider } from './hooks/useTheme';
 
 function App() {
-  // Don't auto-restore from localStorage - user must explicitly join/create session
-  // This prevents localStorage from carrying over between browser tabs/windows
   const [currentUser, setCurrentUser] = useState(null);
+
+  // Restore user from localStorage on mount
+  useEffect(() => {
+    const storedUserId = localStorage.getItem('userId');
+    const storedUserName = localStorage.getItem('userName');
+    
+    if (storedUserId && storedUserName) {
+      setCurrentUser({
+        id: storedUserId,
+        name: storedUserName,
+      });
+    }
+  }, []);
+
+  const handleUserLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('userId');
+    localStorage.removeItem('userName');
+  };
 
   return (
     <ThemeProvider>
@@ -26,7 +43,7 @@ function App() {
               path="/session/:roomCode"
               element={
                 currentUser ? (
-                  <TaskBoard user={currentUser} />
+                  <TaskBoard user={currentUser} onLogout={handleUserLogout} />
                 ) : (
                   <SessionJoin onJoin={setCurrentUser} />
                 )

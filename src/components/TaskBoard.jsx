@@ -41,7 +41,7 @@ function CreateColumnDropZone({ zoneId = 'new-column', isFirst = false }) {
   );
 }
 
-function TaskBoard({ user }) {
+function TaskBoard({ user, onLogout }) {
   const { roomCode } = useParams();
   const navigate = useNavigate();
   const { session, participants, tasks, columns, loading } = useSession(roomCode);
@@ -276,6 +276,18 @@ function TaskBoard({ user }) {
               >
                 {isDark ? '☀️' : '🌙'}
               </button>
+              {onLogout && (
+                <button
+                  onClick={() => {
+                    navigate('/');
+                    if (onLogout) onLogout();
+                  }}
+                  className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                  title="Logout"
+                >
+                  Logout
+                </button>
+              )}
               <ParticipantList participants={participants} currentUser={user} currentTurnUser={currentTurnUser} />
             </div>
           </div>
