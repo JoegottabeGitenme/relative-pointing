@@ -67,11 +67,9 @@ function TaskItem({ task, onDeleteTask = null }) {
   }
 
   const handleDelete = (e) => {
-    console.log('Delete button clicked for task:', task.id);
     e.preventDefault();
     e.stopPropagation();
     if (onDeleteTask) {
-      console.log('Calling onDeleteTask with taskId:', task.id);
       onDeleteTask(task.id);
     }
   };

@@ -196,9 +196,7 @@ function TaskBoard({ user }) {
 
   const handleDeleteTask = async (taskId) => {
     try {
-      console.log('handleDeleteTask called with taskId:', taskId);
-      const result = await APIService.deleteTask(roomCode, taskId);
-      console.log('Delete result:', result);
+      await APIService.deleteTask(roomCode, taskId);
       // The task list will be automatically refreshed via the useSession hook
     } catch (err) {
       console.error('Error deleting task:', err);
