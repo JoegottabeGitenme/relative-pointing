@@ -220,7 +220,7 @@ function TaskBoard({ user }) {
     );
   }
 
-  const isCreator = user?.id === session.metadata?.createdBy;
+  const isCreator = user?.id === session?.creator_id;
   const currentTurnUser = getCurrentTurnUser();
 
   // Merge optimistic updates with actual tasks
