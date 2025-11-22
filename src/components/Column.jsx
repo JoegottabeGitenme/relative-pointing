@@ -35,12 +35,14 @@ function Column({ columnId, title, tasks = [], canDrag = false, variant = 'defau
           </div>
         )}
         <div className="space-y-2 flex-1 overflow-y-auto">
-          {tasks.length === 0 ? (
+          {!tasks || tasks.length === 0 ? (
             <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No tasks yet</p>
           ) : (
-            tasks.map(task => (
-              <TaskItem key={task.id} task={task} onDeleteTask={onDeleteTask} onShowInfo={setSelectedTask} />
-            ))
+            tasks
+              .filter(task => task && task.id) // Filter out invalid tasks
+              .map(task => (
+                <TaskItem key={task.id} task={task} onDeleteTask={onDeleteTask} onShowInfo={setSelectedTask} />
+              ))
           )}
         </div>
       </div>

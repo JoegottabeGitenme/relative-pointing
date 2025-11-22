@@ -3,13 +3,19 @@
 function TaskInfoModal({ task, onClose }) {
   if (!task) return null;
 
-  const metadata = task.metadata || {};
-  const originalRow = metadata.originalRow || {};
+  const metadata = task?.metadata;
+  const originalRow = metadata?.originalRow;
 
-  // Get all available metadata fields
-  const fields = Object.keys(originalRow)
-    .filter(key => originalRow[key] && originalRow[key].trim())
-    .sort();
+  // Get all available metadata fields, safely handling missing values
+  const fields = originalRow
+    ? Object.keys(originalRow)
+        .filter(key => {
+          const value = originalRow[key];
+          // Safely check if value exists and is non-empty
+          return value && (typeof value === 'string' ? value.trim() : value);
+        })
+        .sort()
+    : [];
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -30,11 +36,11 @@ function TaskInfoModal({ task, onClose }) {
           {/* Title */}
           <div>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-2">
-              {task.title}
+              {task.title || 'Untitled Task'}
             </h3>
             {task.id && (
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                ID: <span className="font-mono">{task.id}</span>
+                ID: <span className="font-mono">{String(task.id)}</span>
               </p>
             )}
           </div>
@@ -51,52 +57,52 @@ function TaskInfoModal({ task, onClose }) {
             </div>
           )}
 
-          {/* Key Metadata */}
-          {(metadata.issueType || metadata.priority || metadata.status) && (
-            <div className="grid grid-cols-3 gap-4">
-              {metadata.issueType && (
-                <div>
-                  <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 uppercase">
-                    Type
-                  </h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    {metadata.issueType}
-                  </p>
-                </div>
-              )}
-              {metadata.priority && (
-                <div>
-                  <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 uppercase">
-                    Priority
-                  </h4>
-                  <div className="flex items-center gap-1">
-                    <span
-                      className={`inline-block w-2 h-2 rounded-full ${
-                        metadata.priority.toLowerCase().includes('high')
-                          ? 'bg-red-500'
-                          : metadata.priority.toLowerCase().includes('medium')
-                          ? 'bg-yellow-500'
-                          : 'bg-green-500'
-                      }`}
-                    ></span>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      {metadata.priority}
-                    </p>
-                  </div>
-                </div>
-              )}
-              {metadata.status && (
-                <div>
-                  <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 uppercase">
-                    Status
-                  </h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    {metadata.status}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+           {/* Key Metadata */}
+           {metadata && (metadata.issueType || metadata.priority || metadata.status) && (
+             <div className="grid grid-cols-3 gap-4">
+               {metadata.issueType && (
+                 <div>
+                   <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 uppercase">
+                     Type
+                   </h4>
+                   <p className="text-sm text-gray-600 dark:text-gray-400">
+                     {String(metadata.issueType)}
+                   </p>
+                 </div>
+               )}
+               {metadata.priority && (
+                 <div>
+                   <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 uppercase">
+                     Priority
+                   </h4>
+                   <div className="flex items-center gap-1">
+                     <span
+                       className={`inline-block w-2 h-2 rounded-full ${
+                         String(metadata.priority).toLowerCase().includes('high')
+                           ? 'bg-red-500'
+                           : String(metadata.priority).toLowerCase().includes('medium')
+                           ? 'bg-yellow-500'
+                           : 'bg-green-500'
+                       }`}
+                     ></span>
+                     <p className="text-sm text-gray-600 dark:text-gray-400">
+                       {String(metadata.priority)}
+                     </p>
+                   </div>
+                 </div>
+               )}
+               {metadata.status && (
+                 <div>
+                   <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 uppercase">
+                     Status
+                   </h4>
+                   <p className="text-sm text-gray-600 dark:text-gray-400">
+                     {String(metadata.status)}
+                   </p>
+                 </div>
+               )}
+             </div>
+           )}
 
           {/* Additional Fields */}
           {fields.length > 0 && (
@@ -105,28 +111,34 @@ function TaskInfoModal({ task, onClose }) {
                 Additional Metadata
               </h4>
               <div className="space-y-3">
-                {fields.map((key) => (
-                  <div key={key} className="flex gap-3 pb-3 border-b border-gray-200 dark:border-gray-700 last:border-0">
-                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400 min-w-[120px] break-words">
-                      {key}
-                    </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400 flex-1 break-words">
-                      {originalRow[key]}
-                    </div>
-                  </div>
-                ))}
+               {fields.map((key) => {
+                   const value = originalRow?.[key];
+                   // Skip if value is missing
+                   if (!value) return null;
+                   
+                   return (
+                     <div key={key} className="flex gap-3 pb-3 border-b border-gray-200 dark:border-gray-700 last:border-0">
+                       <div className="text-xs font-medium text-gray-500 dark:text-gray-400 min-w-[120px] break-words">
+                         {String(key)}
+                       </div>
+                       <div className="text-sm text-gray-600 dark:text-gray-400 flex-1 break-words">
+                         {String(value)}
+                       </div>
+                     </div>
+                   );
+                 })}
               </div>
             </div>
           )}
 
-          {/* No metadata message */}
-          {fields.length === 0 && !metadata.issueType && !metadata.priority && !metadata.status && (
-            <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg text-center">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                No additional metadata available for this task
-              </p>
-            </div>
-          )}
+           {/* No metadata message */}
+           {fields.length === 0 && (!metadata || (!metadata.issueType && !metadata.priority && !metadata.status)) && (
+             <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg text-center">
+               <p className="text-sm text-gray-500 dark:text-gray-400">
+                 No additional metadata available for this task
+               </p>
+             </div>
+           )}
         </div>
 
         {/* Footer */}
