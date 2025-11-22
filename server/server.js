@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
+const rateLimit = require('express-rate-limit');
 require('./db'); // Initialize database
 
 const sessionsRouter = require('./routes/sessions');
@@ -26,13 +27,71 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.json());
 
-// Request logging
+// Enhanced request logging with IP and timestamp
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`);
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] ${req.method} ${req.path} - IP: ${ip}`);
   next();
 });
 
-// Routes
+// Rate limiting configurations
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for health checks
+    return req.path === '/api/health';
+  }
+});
+
+// Stricter rate limiting for session join attempts
+const joinSessionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // limit each IP to 10 join attempts per 15 minutes
+  message: 'Too many session join attempts. Please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    // Rate limit by IP address
+    return req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  },
+  handler: (req, res) => {
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    console.warn(`[SECURITY] Rate limit exceeded for IP: ${ip} - Path: ${req.path}`);
+    res.status(429).json({
+      error: 'Too many session join attempts. Please try again in a few minutes.'
+    });
+  }
+});
+
+// Rate limiting for session creation
+const createSessionLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // limit each IP to 5 session creations per hour
+  message: 'Too many sessions created. Please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    console.warn(`[SECURITY] Create session rate limit exceeded for IP: ${ip}`);
+    res.status(429).json({
+      error: 'Too many sessions created from this IP. Please try again later.'
+    });
+  }
+});
+
+// Apply general rate limiting to all API routes
+app.use('/api/', generalLimiter);
+
+// Routes with specific rate limiting
+app.post('/api/sessions', createSessionLimiter);
+app.post('/api/sessions/:roomCode/join', joinSessionLimiter);
+
+// Standard routes
 app.use('/api/sessions', sessionsRouter);
 app.use('/api/sessions/:roomCode/tasks', tasksRouter);
 app.use('/api/sessions/:roomCode/chat', chatRouter);

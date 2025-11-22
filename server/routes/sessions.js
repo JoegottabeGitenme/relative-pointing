@@ -10,8 +10,24 @@ router.post('/', async (req, res) => {
   try {
     const { creatorId, creatorName } = req.body;
 
+    // Validate input
     if (!creatorId || !creatorName) {
       return res.status(400).json({ error: 'creatorId and creatorName required' });
+    }
+
+    if (typeof creatorId !== 'string' || typeof creatorName !== 'string') {
+      return res.status(400).json({ error: 'Invalid input types' });
+    }
+
+    // Validate UUID format
+    if (!creatorId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+      console.warn(`[SECURITY] Invalid creatorId format attempted: ${creatorId}`);
+      return res.status(400).json({ error: 'Invalid creator ID format' });
+    }
+
+    // Validate name length
+    if (creatorName.trim().length < 1 || creatorName.trim().length > 100) {
+      return res.status(400).json({ error: 'Name must be between 1 and 100 characters' });
     }
 
     const sessionId = uuidv4();
@@ -198,8 +214,30 @@ router.post('/:roomCode/join', async (req, res) => {
     const normalizedCode = roomCode.toLowerCase();
     const { userId, userName } = req.body;
 
+    // Validate input
     if (!userId || !userName) {
       return res.status(400).json({ error: 'userId and userName required' });
+    }
+
+    if (typeof userId !== 'string' || typeof userName !== 'string') {
+      return res.status(400).json({ error: 'Invalid input types' });
+    }
+
+    // Validate room code format (should be 2-3 words separated by dashes)
+    if (!roomCode || typeof roomCode !== 'string' || !roomCode.match(/^[a-z0-9]+-[a-z0-9]+(-[a-z0-9]+)?$/i)) {
+      console.warn(`[SECURITY] Invalid room code format attempted: ${roomCode}`);
+      return res.status(400).json({ error: 'Invalid room code format' });
+    }
+
+    // Validate userName length
+    if (userName.trim().length < 1 || userName.trim().length > 100) {
+      return res.status(400).json({ error: 'Username must be between 1 and 100 characters' });
+    }
+
+    // Validate userId format (should be UUID)
+    if (!userId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+      console.warn(`[SECURITY] Invalid userId format attempted: ${userId}`);
+      return res.status(400).json({ error: 'Invalid user ID format' });
     }
 
     console.log(`[JOIN] Attempting to join session: ${roomCode} (normalized: ${normalizedCode}) as user: ${userName} (${userId})`);
