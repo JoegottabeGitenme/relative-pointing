@@ -8,7 +8,9 @@ import APIService from '../services/api';
 
 function SessionJoin({ onJoin }) {
   const { roomCode } = useParams();
-  const [userName, setUserName] = useState('');
+  // Check if there's a pending name from the "Join Existing Session" button
+  const pendingName = sessionStorage.getItem('pendingUserName');
+  const [userName, setUserName] = useState(pendingName || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -32,15 +34,18 @@ function SessionJoin({ onJoin }) {
       const result = await APIService.joinSession(roomCode, userId, userName.trim());
       console.log(`[SessionJoin] Join successful:`, result);
 
-      // Store user info in localStorage
-      localStorage.setItem('userId', userId);
-      localStorage.setItem('userName', userName);
+       // Store user info in localStorage
+       localStorage.setItem('userId', userId);
+       localStorage.setItem('userName', userName.trim());
 
-      // Set current user (this triggers route change to TaskBoard)
-      onJoin({
-        id: userId,
-        name: userName.trim()
-      });
+       // Clean up the pending name from sessionStorage
+       sessionStorage.removeItem('pendingUserName');
+
+       // Set current user (this triggers route change to TaskBoard)
+       onJoin({
+         id: userId,
+         name: userName.trim()
+       });
     } catch (err) {
       console.error('Error joining session:', err);
       setError(err.message || 'Failed to join session. Check the room code.');
