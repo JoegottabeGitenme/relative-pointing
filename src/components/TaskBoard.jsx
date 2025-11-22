@@ -194,6 +194,16 @@ function TaskBoard({ user }) {
     setShowCreateTask(false);
   };
 
+  const handleDeleteTask = async (taskId) => {
+    try {
+      await APIService.deleteTask(roomCode, taskId);
+      // The task list will be automatically refreshed via the useSession hook
+    } catch (err) {
+      console.error('Error deleting task:', err);
+      alert('Failed to delete task');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -385,6 +395,7 @@ function TaskBoard({ user }) {
                 tasks={displayTasks.filter((t) => t.column_id === 'unsorted')}
                 canDrag={isMyTurn}
                 variant="tasks"
+                onDeleteTask={handleDeleteTask}
               />
             </div>
             {/* Create Task Button */}

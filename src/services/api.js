@@ -141,10 +141,32 @@ class APIService {
      }
    }
 
-  /**
-   * Move a task to a column
-   */
-  static async moveTask(roomCode, taskId, columnId, assignedBy) {
+    /**
+     * Delete a task
+     */
+    static async deleteTask(roomCode, taskId) {
+      try {
+        const response = await fetch(`${API_BASE_URL}/sessions/${roomCode}/tasks/${taskId}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to delete task');
+        }
+
+        return await response.json();
+      } catch (error) {
+        console.error('Error deleting task:', error);
+        throw error;
+      }
+    }
+
+    /**
+     * Move a task to a column
+     */
+    static async moveTask(roomCode, taskId, columnId, assignedBy) {
     try {
       const response = await fetch(`${API_BASE_URL}/sessions/${roomCode}/tasks/${taskId}`, {
         method: 'PUT',

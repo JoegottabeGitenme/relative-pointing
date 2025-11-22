@@ -121,6 +121,34 @@ router.post('/create', async (req, res) => {
   }
 });
 
+// Delete a task
+router.delete('/:taskId', async (req, res) => {
+  try {
+    const { roomCode, taskId } = req.params;
+
+    // Get session
+    const session = await dbPromise.get(
+      `SELECT * FROM sessions WHERE room_code = ?`,
+      [roomCode]
+    );
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Delete task
+    await dbPromise.run(
+      `DELETE FROM tasks WHERE id = ? AND session_id = ?`,
+      [taskId, session.id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting task:', err);
+    res.status(500).json({ error: 'Failed to delete task' });
+  }
+});
+
 // Move task to column
 router.put('/:taskId', async (req, res) => {
   try {

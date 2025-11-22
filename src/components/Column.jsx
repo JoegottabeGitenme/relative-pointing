@@ -2,7 +2,7 @@ import React from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { useDraggable } from '@dnd-kit/core';
 
-function Column({ columnId, title, tasks = [], canDrag = false, variant = 'default', onDelete = null }) {
+function Column({ columnId, title, tasks = [], canDrag = false, variant = 'default', onDelete = null, onDeleteTask = null }) {
   const { setNodeRef, isOver } = useDroppable({
     id: columnId,
   });
@@ -31,20 +31,20 @@ function Column({ columnId, title, tasks = [], canDrag = false, variant = 'defau
           <h3 className={`${titleClasses}`}>{title}</h3>
         </div>
       )}
-      <div className="space-y-2 flex-1 overflow-y-auto">
-        {tasks.length === 0 ? (
-          <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No tasks yet</p>
-        ) : (
-          tasks.map(task => (
-            <TaskItem key={task.id} task={task} />
-          ))
-        )}
-      </div>
+       <div className="space-y-2 flex-1 overflow-y-auto">
+         {tasks.length === 0 ? (
+           <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No tasks yet</p>
+         ) : (
+           tasks.map(task => (
+             <TaskItem key={task.id} task={task} onDeleteTask={onDeleteTask} />
+           ))
+         )}
+       </div>
     </div>
   );
 }
 
-function TaskItem({ task }) {
+function TaskItem({ task, onDeleteTask = null }) {
   const {
     attributes,
     listeners,
@@ -66,20 +66,41 @@ function TaskItem({ task }) {
     return null;
   }
 
+  const handleDelete = (e) => {
+    e.stopPropagation();
+    if (onDeleteTask) {
+      onDeleteTask(task.id);
+    }
+  };
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       {...attributes}
       {...listeners}
-      className={`bg-white dark:bg-gray-700 p-3 rounded shadow-sm cursor-grab active:cursor-grabbing transition-opacity ${
+      className={`bg-white dark:bg-gray-700 p-3 rounded shadow-sm cursor-grab active:cursor-grabbing transition-opacity group ${
         isDragging ? 'opacity-30 shadow-lg' : 'hover:shadow-md'
       }`}
     >
-      <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{task.title}</p>
-      {task.description && (
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{task.description}</p>
-      )}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-100 break-words">{task.title}</p>
+          {task.description && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 break-words">{task.description}</p>
+          )}
+        </div>
+        {onDeleteTask && (
+          <button
+            onClick={handleDelete}
+            className="flex-shrink-0 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Delete task"
+            aria-label="Delete task"
+          >
+            ✕
+          </button>
+        )}
+      </div>
     </div>
   );
 }
