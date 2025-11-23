@@ -139,6 +139,29 @@ REACT_APP_API_URL=http://localhost:5000/api
 - Persists between restarts
 - Delete and restart to reset data
 
+## Deployment
+
+Deploy to AWS EC2 with one command:
+
+```bash
+cp .env.example .env
+# Edit .env with your EC2 details
+./deploy-remote.sh
+```
+
+The deployment script automates:
+- Building React locally
+- Uploading files to EC2 via SCP
+- Installing Node.js using nvm
+- Configuring nginx with HTTPS redirect
+- Creating systemd service
+- Starting your app
+
+**Guides:**
+- **[DEPLOY_QUICKSTART.md](DEPLOY_QUICKSTART.md)** - 5 minute quick start
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Complete deployment guide
+- **[AWS-ACM-DEPLOYMENT.md](AWS-ACM-DEPLOYMENT.md)** - SSL setup with AWS Certificate Manager
+
 ## License
 
 MIT
