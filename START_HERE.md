@@ -127,6 +127,9 @@ curl http://localhost:5000/api/health
 | [LOCAL_SETUP.md](LOCAL_SETUP.md) | Architecture deep-dive |
 | [SECURITY.md](SECURITY.md) | Security details |
 | [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md) | What's built |
+| **[DEPLOY_QUICKSTART.md](DEPLOY_QUICKSTART.md)** | **Deploy to EC2 (5 min)** |
+| **[DEPLOYMENT.md](DEPLOYMENT.md)** | **Complete deployment guide** |
+| **[AWS-ACM-DEPLOYMENT.md](AWS-ACM-DEPLOYMENT.md)** | **SSL setup** |
 | [INDEX.md](INDEX.md) | All docs |
 
 ## Features
@@ -177,15 +180,28 @@ curl http://localhost:5000/api/health
 
 ## Deployment
 
-When ready to go to production:
+When ready to go to production on AWS EC2:
 
-1. Build React: `npm run build`
-2. Deploy backend Express app
-3. Switch from SQLite to PostgreSQL
-4. Deploy frontend to S3/CloudFront
-5. Update API URL in environment
+**Quick Start (5 minutes):**
+```bash
+cp .env.example .env
+# Edit .env with your EC2 details
+./deploy-remote.sh
+```
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details.
+That's it! The script handles everything:
+- ✅ Builds React locally
+- ✅ Uploads to EC2 via SCP
+- ✅ Installs Node.js using nvm
+- ✅ Configures nginx with HTTPS redirect
+- ✅ Creates systemd service
+- ✅ Starts your app
+
+**Guides:**
+- **[DEPLOY_QUICKSTART.md](DEPLOY_QUICKSTART.md)** - 5 minute quick start
+- **[EC2-QUICKSTART.md](EC2-QUICKSTART.md)** - Abbreviated guide
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Complete 8-phase guide
+- **[AWS-ACM-DEPLOYMENT.md](AWS-ACM-DEPLOYMENT.md)** - SSL setup
 
 ## Need Help?
 
