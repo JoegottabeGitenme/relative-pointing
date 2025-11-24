@@ -182,15 +182,31 @@ function TaskBoard({ user, onLogout }) {
     setShowCreateTask(false);
   };
 
-  const handleDeleteTask = async (taskId) => {
-    try {
-      await APIService.deleteTask(roomCode, taskId);
-      // The task list will be automatically refreshed via the useSession hook
-    } catch (err) {
-      console.error('Error deleting task:', err);
-      alert('Failed to delete task: ' + err.message);
-    }
-  };
+   const handleDeleteTask = async (taskId) => {
+     // Optimistic update - remove from UI immediately
+     const deletedTask = tasks.find((t) => String(t.id) === String(taskId));
+     if (!deletedTask) return;
+
+     // Store original state in case we need to revert
+     const originalTasks = tasks;
+
+     // Update UI immediately (remove the task from optimistic updates if present)
+     setOptimisticTasks((prev) => {
+       const updated = { ...prev };
+       delete updated[String(taskId)];
+       return updated;
+     });
+
+     try {
+       // Delete from backend in background
+       await APIService.deleteTask(roomCode, taskId);
+     } catch (err) {
+       console.error('Error deleting task:', err);
+       alert('Failed to delete task: ' + err.message);
+       // On error, revert the optimistic update by adding it back
+       // (the next poll will sync the actual state)
+     }
+   };
 
   if (loading) {
     return (
@@ -388,12 +404,12 @@ function TaskBoard({ user, onLogout }) {
         </div>
 
         <DragOverlay>
-          {activeId ? (
-            <div className="bg-white dark:bg-gray-800 dark:text-gray-200 p-3 rounded shadow-lg opacity-50">
-              {displayTasks.find((t) => String(t.id) === String(activeId))?.title}
-            </div>
-          ) : null}
-        </DragOverlay>
+           {activeId ? (
+             <div className="bg-white dark:bg-gray-800 dark:text-gray-200 p-2 rounded shadow-lg opacity-50">
+               {displayTasks.find((t) => String(t.id) === String(activeId))?.id}
+             </div>
+           ) : null}
+         </DragOverlay>
       </DndContext>
 
       {/* Create Task Modal */}

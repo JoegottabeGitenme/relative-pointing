@@ -98,14 +98,11 @@ function TaskItem({ task, onDeleteTask = null, onShowInfo = null }) {
         isDragging ? 'opacity-30 shadow-lg' : 'hover:shadow-md'
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-800 dark:text-gray-100 break-words">{task.title}</p>
-          {task.description && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 break-words">{task.description}</p>
-          )}
-        </div>
-      </div>
+       <div className="flex items-start justify-between gap-2">
+         <div className="flex-1 min-w-0">
+           <p className="text-sm font-medium text-gray-800 dark:text-gray-100 break-words">{task.id}</p>
+         </div>
+       </div>
       {(onDeleteTask || onShowInfo) && (
         <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {onShowInfo && (
