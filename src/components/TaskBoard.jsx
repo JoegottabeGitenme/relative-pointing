@@ -73,61 +73,65 @@ function TaskBoard({ user, onLogout }) {
     setActiveId(event.active.id);
   };
 
-  const handleDragEnd = async (event) => {
-    const { active, over } = event;
-    setActiveId(null);
+   const handleDragEnd = async (event) => {
+     const { active, over } = event;
+     setActiveId(null);
 
-    if (!over) return;
+     if (!over) return;
 
-    const taskId = String(active.id);
-    let targetColumnId = over.id;
-    const draggedTask = tasks.find((t) => String(t.id) === taskId);
+     const taskId = String(active.id);
+     let targetColumnId = over.id;
+     const draggedTask = tasks.find((t) => String(t.id) === taskId);
 
-    if (!draggedTask) return;
+     if (!draggedTask) return;
 
-    // Prevent dragging to the same column
-    if (draggedTask.column_id === targetColumnId) return;
+     // Prevent dragging to the same column
+     if (draggedTask.column_id === targetColumnId) return;
 
-    // If dragging to "create new column" zone
-    if (targetColumnId === 'new-column' || targetColumnId === 'new-column-left' || String(targetColumnId).startsWith('new-column-between')) {
-      try {
-        let newColumnOrder;
-        const isLeftZone = targetColumnId === 'new-column-left';
+     // If dragging to "create new column" zone
+     let createColumnPromise = null;
+     if (targetColumnId === 'new-column' || targetColumnId === 'new-column-left' || String(targetColumnId).startsWith('new-column-between')) {
+       let newColumnOrder;
+       const isLeftZone = targetColumnId === 'new-column-left';
 
-        // Calculate order: left columns get negative order, right columns get positive
-        if (isLeftZone) {
-          // Insert to the left - get the minimum order and go lower
-          const minOrder = columns?.length > 0
-            ? Math.min(...columns.map(c => c.column_order || 0))
-            : 0;
-          newColumnOrder = minOrder - 1;
-        } else {
-          // Insert to the right or between - get the maximum order and go higher
-          const maxOrder = columns?.length > 0
-            ? Math.max(...columns.map(c => c.column_order || 0))
-            : 0;
-          newColumnOrder = maxOrder + 1;
-        }
+       // Calculate order: left columns get negative order, right columns get positive
+       if (isLeftZone) {
+         // Insert to the left - get the minimum order and go lower
+         const minOrder = columns?.length > 0
+           ? Math.min(...columns.map(c => c.column_order || 0))
+           : 0;
+         newColumnOrder = minOrder - 1;
+       } else {
+         // Insert to the right or between - get the maximum order and go higher
+         const maxOrder = columns?.length > 0
+           ? Math.max(...columns.map(c => c.column_order || 0))
+           : 0;
+         newColumnOrder = maxOrder + 1;
+       }
 
-        targetColumnId = `column-${Date.now()}`;
+       targetColumnId = `column-${Date.now()}`;
 
-        // Create the column in database
-        await APIService.createColumn(roomCode, targetColumnId, 'New Column', newColumnOrder);
-      } catch (err) {
-        console.error('Error creating column:', err);
-        return;
-      }
-    }
+       // Create the column in the background (don't wait)
+       createColumnPromise = APIService.createColumn(roomCode, targetColumnId, 'New Column', newColumnOrder)
+         .catch(err => {
+           console.error('Error creating column:', err);
+         });
+     }
 
-    // Optimistic update - update UI immediately
-    setOptimisticTasks((prev) => ({
-      ...prev,
-      [taskId]: { ...draggedTask, column_id: targetColumnId },
-    }));
+     // Optimistic update - update UI immediately (don't wait for column creation)
+     setOptimisticTasks((prev) => ({
+       ...prev,
+       [taskId]: { ...draggedTask, column_id: targetColumnId },
+     }));
 
-    // Update database in background
-    try {
-      await APIService.moveTask(roomCode, taskId, targetColumnId, user?.id);
+     // Move task in the background (don't wait for it before updating UI)
+     try {
+       // If we're creating a new column, wait for it before moving
+       if (createColumnPromise) {
+         await createColumnPromise;
+       }
+       
+       await APIService.moveTask(roomCode, taskId, targetColumnId, user?.id);
 
       // Check if the source column is now empty and delete it
       const sourceColumnId = draggedTask.column_id;
