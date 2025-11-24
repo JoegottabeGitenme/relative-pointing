@@ -141,10 +141,20 @@ router.delete('/:taskId', async (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    // Delete task
+    // Find task by either database id or jira_key (since frontend sends display id)
+    const task = await dbPromise.get(
+      `SELECT id FROM tasks WHERE session_id = ? AND (id = ? OR jira_key = ?)`,
+      [session.id, taskId, taskId]
+    );
+
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Delete task using actual database id
     await dbPromise.run(
       `DELETE FROM tasks WHERE id = ? AND session_id = ?`,
-      [taskId, session.id]
+      [task.id, session.id]
     );
 
     res.json({ success: true });
@@ -174,10 +184,20 @@ router.put('/:taskId', async (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    // Update task
+    // Find task by either database id or jira_key (since frontend sends display id)
+    const task = await dbPromise.get(
+      `SELECT id FROM tasks WHERE session_id = ? AND (id = ? OR jira_key = ?)`,
+      [session.id, taskId, taskId]
+    );
+
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Update task using actual database id
     await dbPromise.run(
       `UPDATE tasks SET column_id = ?, assigned_by = ?, assigned_at = CURRENT_TIMESTAMP WHERE id = ? AND session_id = ?`,
-      [columnId, assignedBy, taskId, session.id]
+      [columnId, assignedBy, task.id, session.id]
     );
 
     res.json({ success: true });
