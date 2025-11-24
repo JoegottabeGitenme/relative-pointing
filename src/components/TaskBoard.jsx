@@ -413,6 +413,7 @@ function TaskBoard({ user, onLogout }) {
                                 tasks={columnTasks}
                                 canDrag={true}
                                 onDelete={handleDeleteColumn}
+                                jiraBaseUrl={jiraBaseUrl}
                               />
                             </div>
                             {/* Create new column between existing columns - only show between columns, not after the last one */}
@@ -440,16 +441,17 @@ function TaskBoard({ user, onLogout }) {
 
           {/* Tasks Queue Panel - Right Sidebar */}
           <div className="w-80 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden">
-            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-1 overflow-y-auto">
-              <Column
-                columnId="unsorted"
-                title="Tasks"
-                tasks={displayTasks.filter((t) => t.column_id === 'unsorted')}
-                canDrag={true}
-                variant="tasks"
-                onDeleteTask={handleDeleteTask}
-              />
-            </div>
+             <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-1 overflow-y-auto">
+               <Column
+                 columnId="unsorted"
+                 title="Tasks"
+                 tasks={displayTasks.filter((t) => t.column_id === 'unsorted')}
+                 canDrag={true}
+                 variant="tasks"
+                 onDeleteTask={handleDeleteTask}
+                 jiraBaseUrl={jiraBaseUrl}
+               />
+             </div>
             {/* Create Task Button */}
             {isCreator && (
               <div className="p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700">

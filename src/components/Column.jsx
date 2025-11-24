@@ -4,7 +4,7 @@ import { useDraggable } from '@dnd-kit/core';
 import TaskInfoModal from './TaskInfoModal';
 import { buildJiraUrl, detectJiraBaseUrl } from '../utils/jiraUrlBuilder';
 
-function Column({ columnId, title, tasks = [], canDrag = false, variant = 'default', onDelete = null, onDeleteTask = null }) {
+function Column({ columnId, title, tasks = [], canDrag = false, variant = 'default', onDelete = null, onDeleteTask = null, jiraBaseUrl = null }) {
   const [selectedTask, setSelectedTask] = useState(null);
   const { setNodeRef, isOver } = useDroppable({
     id: columnId,
@@ -42,7 +42,7 @@ function Column({ columnId, title, tasks = [], canDrag = false, variant = 'defau
             tasks
               .filter(task => task && task.id) // Filter out invalid tasks
               .map(task => (
-                <TaskItem key={task.id} task={task} onDeleteTask={onDeleteTask} onShowInfo={setSelectedTask} />
+                <TaskItem key={task.id} task={task} onDeleteTask={onDeleteTask} onShowInfo={setSelectedTask} jiraBaseUrl={jiraBaseUrl} />
               ))
           )}
         </div>
@@ -59,7 +59,7 @@ function Column({ columnId, title, tasks = [], canDrag = false, variant = 'defau
   );
 }
 
-function TaskItem({ task, onDeleteTask = null, onShowInfo = null }) {
+function TaskItem({ task, onDeleteTask = null, onShowInfo = null, jiraBaseUrl = null }) {
   const {
     attributes,
     listeners,
@@ -101,7 +101,28 @@ function TaskItem({ task, onDeleteTask = null, onShowInfo = null }) {
     >
        <div className="flex items-start justify-between gap-2">
          <div className="flex-1 min-w-0">
-           <p className="text-sm font-medium text-gray-800 dark:text-gray-100 break-words">{task.id}</p>
+           {(() => {
+             const baseUrl = jiraBaseUrl || detectJiraBaseUrl(task.id);
+             const jiraUrl = buildJiraUrl(baseUrl, task.id);
+             
+             return jiraUrl ? (
+               <a
+                 href={jiraUrl}
+                 onClick={(e) => {
+                   e.stopPropagation();
+                   window.open(jiraUrl, '_blank', 'noopener,noreferrer');
+                 }}
+                 target="_blank"
+                 rel="noopener noreferrer"
+                 className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline break-words"
+                 title={`Open ${task.id} in Jira`}
+               >
+                 {task.id}
+               </a>
+             ) : (
+               <p className="text-sm font-medium text-gray-800 dark:text-gray-100 break-words">{task.id}</p>
+             );
+           })()}
            {task.title && (
              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 break-words line-clamp-2">{task.title}</p>
            )}
