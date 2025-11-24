@@ -403,13 +403,23 @@ function TaskBoard({ user, onLogout }) {
           </div>
         </div>
 
-        <DragOverlay>
-           {activeId ? (
-             <div className="bg-white dark:bg-gray-800 dark:text-gray-200 p-2 rounded shadow-lg opacity-50">
-               {displayTasks.find((t) => String(t.id) === String(activeId))?.id}
-             </div>
-           ) : null}
-         </DragOverlay>
+         <DragOverlay>
+            {activeId ? (
+              <div className="bg-white dark:bg-gray-800 dark:text-gray-200 p-2 rounded shadow-lg opacity-75 max-w-xs">
+                {(() => {
+                  const task = displayTasks.find((t) => String(t.id) === String(activeId));
+                  return (
+                    <>
+                      <p className="text-sm font-medium">{task?.id}</p>
+                      {task?.title && (
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">{task.title}</p>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            ) : null}
+          </DragOverlay>
       </DndContext>
 
       {/* Create Task Modal */}
