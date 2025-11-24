@@ -89,45 +89,54 @@ function TaskItem({ task, onDeleteTask = null, onShowInfo = null, jiraBaseUrl = 
     }
   };
 
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      className={`bg-white dark:bg-gray-700 p-3 rounded shadow-sm cursor-grab active:cursor-grabbing transition-opacity group relative ${
-        isDragging ? 'opacity-30 shadow-lg' : 'hover:shadow-md'
-      }`}
-    >
-       <div className="flex items-start justify-between gap-2">
-         <div className="flex-1 min-w-0">
-           {(() => {
-             const baseUrl = jiraBaseUrl || detectJiraBaseUrl(task.id);
-             const jiraUrl = buildJiraUrl(baseUrl, task.id);
-             
-             return jiraUrl ? (
-               <a
-                 href={jiraUrl}
-                 onClick={(e) => {
-                   e.stopPropagation();
-                   window.open(jiraUrl, '_blank', 'noopener,noreferrer');
-                 }}
-                 target="_blank"
-                 rel="noopener noreferrer"
-                 className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline break-words"
-                 title={`Open ${task.id} in Jira`}
-               >
-                 {task.id}
-               </a>
-             ) : (
-               <p className="text-sm font-medium text-gray-800 dark:text-gray-100 break-words">{task.id}</p>
-             );
-           })()}
-           {task.title && (
-             <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 break-words line-clamp-2">{task.title}</p>
-           )}
-         </div>
-       </div>
+   return (
+     <div
+       ref={setNodeRef}
+       style={style}
+       {...attributes}
+       className={`bg-white dark:bg-gray-700 p-3 rounded shadow-sm cursor-grab active:cursor-grabbing transition-opacity group relative ${
+         isDragging ? 'opacity-30 shadow-lg' : 'hover:shadow-md'
+       }`}
+       {...listeners}
+     >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            {(() => {
+              const baseUrl = jiraBaseUrl || detectJiraBaseUrl(task.id);
+              const jiraUrl = buildJiraUrl(baseUrl, task.id);
+              
+              return jiraUrl ? (
+                <a
+                  href={jiraUrl}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.open(jiraUrl, '_blank', 'noopener,noreferrer');
+                  }}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline break-words"
+                  title={`Open ${task.id} in Jira`}
+                >
+                  {task.id}
+                </a>
+              ) : (
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-100 break-words">{task.id}</p>
+              );
+            })()}
+            {task.title && (
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 break-words line-clamp-2">{task.title}</p>
+            )}
+          </div>
+        </div>
       {(onDeleteTask || onShowInfo) && (
         <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {onShowInfo && (
