@@ -16,8 +16,8 @@ export function parseJiraCSV(file) {
       complete: (results) => {
         try {
            const tasks = results.data.map((row, index) => {
-             // Extract common Jira fields
-             const issueKey = row['Issue Key'] || row['Key'] || `TASK-${index + 1}`;
+             // Extract common Jira fields (case-insensitive for issue key)
+             const issueKey = row['Issue key'] || row['Issue Key'] || row['Key'] || `TASK-${index + 1}`;
              const summary = row['Summary'] || row['Title'] || 'Untitled Task';
              const description = row['Description'] || '';
              const issueType = row['Issue Type'] || row['Type'] || '';
