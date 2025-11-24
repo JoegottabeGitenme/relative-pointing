@@ -216,6 +216,25 @@ function TaskBoard({ user, onLogout }) {
      try {
        // Delete from backend in background
        await APIService.deleteTask(roomCode, taskId);
+
+       // Check if the task's column is now empty and delete it
+       const taskColumnId = deletedTask.column_id;
+       if (taskColumnId && taskColumnId !== 'unsorted') {
+         // Check remaining tasks in this column (excluding the deleted task)
+         const tasksInColumn = displayTasks.filter(
+           (t) => t.column_id === taskColumnId && String(t.id) !== String(taskId)
+         );
+
+         // If column is now empty, delete it
+         if (tasksInColumn.length === 0) {
+           try {
+             await APIService.deleteColumn(roomCode, taskColumnId);
+           } catch (deleteErr) {
+             console.error('Error deleting empty column:', deleteErr);
+             // Don't fail the whole operation if column deletion fails
+           }
+         }
+       }
      } catch (err) {
        console.error('Error deleting task:', err);
        alert('Failed to delete task: ' + err.message);
