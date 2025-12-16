@@ -2,6 +2,9 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 
+// Session inactivity timeout (15 minutes)
+const SESSION_TIMEOUT_MS = 15 * 60 * 1000;
+
 const DB_PATH = path.join(__dirname, 'app.db');
 
 // Create database connection
@@ -18,31 +21,124 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
 db.run('PRAGMA foreign_keys = ON');
 
 function initializeDatabase() {
-  const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
+  // Run migrations first to add any missing columns to existing tables
+  runMigrations(() => {
+    // Then run schema to create any missing tables/indexes
+    const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
 
-  // Split schema by statements and execute each one sequentially
-  const statements = schema.split(';').filter(stmt => stmt.trim());
+    // Split schema by statements and execute each one sequentially
+    const statements = schema.split(';').filter(stmt => stmt.trim());
 
-  let index = 0;
+    let index = 0;
 
-  const executeNextStatement = () => {
-    if (index >= statements.length) {
-      console.log('Database schema initialized');
-      return;
-    }
-
-    const statement = statements[index];
-    index++;
-
-    db.run(statement + ';', (err) => {
-      if (err && !err.message.includes('already exists')) {
-        console.error('Error executing schema:', err);
+    const executeNextStatement = () => {
+      if (index >= statements.length) {
+        console.log('Database schema initialized');
+        // Start the cleanup job
+        startSessionCleanup();
+        return;
       }
-      executeNextStatement();
-    });
-  };
 
-  executeNextStatement();
+      const statement = statements[index];
+      index++;
+
+      db.run(statement + ';', (err) => {
+        if (err && !err.message.includes('already exists') && !err.message.includes('no such column')) {
+          console.error('Error executing schema:', err);
+        }
+        executeNextStatement();
+      });
+    };
+
+    executeNextStatement();
+  });
+}
+
+// Add missing columns to existing databases
+function runMigrations(callback) {
+  // Add last_activity_at column if it doesn't exist
+  // Note: SQLite doesn't allow CURRENT_TIMESTAMP as default in ALTER TABLE
+  db.run(`ALTER TABLE sessions ADD COLUMN last_activity_at DATETIME`, (err) => {
+    if (err && err.message.includes('duplicate column')) {
+      // Column already exists, that's fine
+      console.log('Migration: last_activity_at column already exists');
+      if (callback) callback();
+    } else if (!err) {
+      console.log('Migration: Added last_activity_at column to sessions');
+      // Update existing sessions to have current timestamp
+      db.run(`UPDATE sessions SET last_activity_at = CURRENT_TIMESTAMP`, () => {
+        console.log('Migration: Updated existing sessions with current timestamp');
+        if (callback) callback();
+      });
+    } else {
+      // Some other error (like table doesn't exist yet)
+      if (callback) callback();
+    }
+  });
+}
+
+// Clean up expired sessions (inactive for more than SESSION_TIMEOUT_MS)
+function cleanupExpiredSessions() {
+  // Format cutoff time to match SQLite's CURRENT_TIMESTAMP format (YYYY-MM-DD HH:MM:SS)
+  const cutoffDate = new Date(Date.now() - SESSION_TIMEOUT_MS);
+  const cutoffTime = cutoffDate.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+  
+  db.run(
+    `DELETE FROM sessions WHERE last_activity_at IS NOT NULL AND last_activity_at < ?`,
+    [cutoffTime],
+    function(err) {
+      if (err) {
+        console.error('Error cleaning up expired sessions:', err);
+      } else if (this.changes > 0) {
+        console.log(`Cleaned up ${this.changes} expired session(s)`);
+      }
+    }
+  );
+}
+
+// Start periodic cleanup job (runs every minute)
+function startSessionCleanup() {
+  // Delay first cleanup by 5 seconds to allow migrations to complete
+  setTimeout(() => {
+    cleanupExpiredSessions();
+    // Then run every minute
+    setInterval(cleanupExpiredSessions, 60 * 1000);
+    console.log(`Session cleanup job started (timeout: ${SESSION_TIMEOUT_MS / 1000 / 60} minutes)`);
+  }, 5000);
+}
+
+// Update session activity timestamp
+function touchSession(sessionId) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `UPDATE sessions SET last_activity_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [sessionId],
+      function(err) {
+        if (err) {
+          reject(err);
+        } else {
+          resolve({ changes: this.changes });
+        }
+      }
+    );
+  });
+}
+
+// Update session activity by room code
+function touchSessionByRoomCode(roomCode) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `UPDATE sessions SET last_activity_at = CURRENT_TIMESTAMP WHERE LOWER(room_code) = LOWER(?)`,
+      [roomCode],
+      function(err) {
+        if (err) {
+          reject(err);
+        } else {
+          resolve({ changes: this.changes });
+        }
+      }
+    );
+  });
 }
 
 // Helper functions for common operations
@@ -84,4 +180,4 @@ const dbPromise = {
   }
 };
 
-module.exports = { db, dbPromise };
+module.exports = { db, dbPromise, touchSession, touchSessionByRoomCode, SESSION_TIMEOUT_MS };

@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import APIService from '../services/api';
+import Version from './Version';
 
 function SessionCreator({ onSessionCreated }) {
   const [userName, setUserName] = useState('');
@@ -96,7 +97,10 @@ function SessionCreator({ onSessionCreated }) {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 relative">
+      <div className="absolute bottom-4 right-4">
+        <Version />
+      </div>
       <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
         <h1 className="text-3xl font-bold text-gray-800 mb-2">
           Relative Pointing

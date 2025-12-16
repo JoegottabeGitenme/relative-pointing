@@ -1,5 +1,5 @@
 const express = require('express');
-const { dbPromise } = require('../db');
+const { dbPromise, touchSessionByRoomCode } = require('../db');
 const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router({ mergeParams: true });
@@ -56,6 +56,9 @@ router.post('/', async (req, res) => {
       );
     }
 
+    // Update session activity
+    await touchSessionByRoomCode(roomCode.toLowerCase());
+
     res.json({ success: true, tasksCreated: tasks.length });
   } catch (err) {
     console.error('Error uploading tasks:', err);
@@ -109,6 +112,9 @@ router.post('/create', async (req, res) => {
         newOrder
       ]
     );
+
+    // Update session activity
+    await touchSessionByRoomCode(roomCode.toLowerCase());
 
     res.json({
       success: true,
@@ -203,6 +209,9 @@ router.put('/:taskId', async (req, res) => {
         [columnId, assignedBy, task.id, session.id]
       );
       console.log(`[MOVE] Task ${taskId} moved from ${task.column_id} to ${columnId}`);
+      
+      // Update session activity
+      await touchSessionByRoomCode(roomCode.toLowerCase());
     }
 
     res.json({ success: true });
@@ -258,6 +267,9 @@ router.post('/create-task', async (req, res) => {
         newOrder
       ]
     );
+
+    // Update session activity
+    await touchSessionByRoomCode(roomCode.toLowerCase());
 
     res.json({
       success: true,

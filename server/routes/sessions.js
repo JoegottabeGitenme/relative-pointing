@@ -1,5 +1,5 @@
 const express = require('express');
-const { dbPromise } = require('../db');
+const { dbPromise, touchSessionByRoomCode } = require('../db');
 const { generateRoomCode } = require('../utils/roomCodeGenerator');
 const { v4: uuidv4 } = require('uuid');
 
@@ -37,7 +37,7 @@ router.post('/', async (req, res) => {
 
      // Create session
      await dbPromise.run(
-       `INSERT INTO sessions (id, room_code, creator_id, creator_name) VALUES (?, ?, ?, ?)`,
+       `INSERT INTO sessions (id, room_code, creator_id, creator_name, last_activity_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
        [sessionId, roomCode, creatorId, creatorName]
      );
 
@@ -183,6 +183,9 @@ router.get('/:roomCode', async (req, res) => {
        metadata: task.metadata ? JSON.parse(task.metadata) : {}
      }));
 
+     // Update session activity (viewing the session counts as activity)
+     await touchSessionByRoomCode(normalizedCode);
+
      res.json({
        session,
        participants,
@@ -273,6 +276,9 @@ router.post('/:roomCode/join', async (req, res) => {
        [participantId, session.id, userId, userName]
      );
 
+     // Update session activity
+     await touchSessionByRoomCode(normalizedCode);
+
      console.log(`[JOIN] Successfully added participant`);
 
      res.json({ success: true, sessionId: session.id });
@@ -294,7 +300,7 @@ router.patch('/:roomCode', async (req, res) => {
 
     // Get session
     const session = await dbPromise.get(
-      `SELECT * FROM sessions WHERE room_code = ?`,
+      `SELECT * FROM sessions WHERE LOWER(room_code) = LOWER(?)`,
       [roomCode]
     );
 

@@ -24,20 +24,20 @@ export function parseJiraCSV(file) {
              const priority = row['Priority'] || '';
              const status = row['Status'] || '';
              
-             return {
-               jiraKey: issueKey,
-               title: summary,
-               description: description,
-               issueType,
-               priority,
-               status,
-               metadata: {
-                 issueType,
-                 priority,
-                 status,
-                 originalRow: row,
-               },
-             };
+              return {
+                jiraKey: issueKey,
+                title: summary,
+                description: description,
+                issueType,
+                priority,
+                status,
+                metadata: {
+                  issueType,
+                  priority,
+                  status,
+                  // Only store essential fields, not the entire row (which can be huge with Jira exports)
+                },
+              };
            });
 
           // Try to extract Jira base URL from issue keys

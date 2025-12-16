@@ -19,6 +19,7 @@ import Column from './Column';
 import ParticipantList from './ParticipantList';
 import CreateTaskModal from './CreateTaskModal';
 import DropZoneOverlay from './DropZoneOverlay';
+import Version from './Version';
 import { useTheme } from '../hooks/useTheme';
 
 function CreateColumnDropZone({ zoneId = 'new-column', isFirst = false }) {
@@ -332,7 +333,7 @@ function TaskBoard({ user, onLogout }) {
               </button>
               <div>
                 <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-                  Relative Pointing
+                  Relative Pointing <Version className="ml-2" />
                 </h1>
                <p className="text-sm text-gray-600 dark:text-gray-400">
                  Room Code:{' '}
@@ -468,6 +469,7 @@ function TaskBoard({ user, onLogout }) {
                                 tasks={columnTasks}
                                 canDrag={true}
                                 onDelete={handleDeleteColumn}
+                                onDeleteTask={handleDeleteTask}
                                 jiraBaseUrl={jiraBaseUrl}
                               />
                             </div>

@@ -314,18 +314,29 @@ sudo chown -R "$USER:$USER" "$EC2_APP_DIR"
 chmod -R 755 "$EC2_APP_DIR"
 print_success "Directories created"
 
-# Generate self-signed certificate if snakeoil doesn't exist
-if [ ! -f /etc/ssl/certs/ssl-cert-snakeoil.pem ]; then
-    print_info "Generating self-signed SSL certificate..."
-    sudo apt-get install -y -qq ssl-cert > /dev/null 2>&1 || \
-    sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-        -keyout /etc/ssl/private/ssl-cert-snakeoil.key \
-        -out /etc/ssl/certs/ssl-cert-snakeoil.pem \
-        -subj "/CN=${EC2_DOMAIN}" > /dev/null 2>&1
-    print_success "Self-signed certificate generated"
+# Determine SSL certificate paths
+# Prefer Let's Encrypt if available, otherwise use/generate self-signed
+if [ -f "/etc/letsencrypt/live/${EC2_DOMAIN}/fullchain.pem" ]; then
+    SSL_CERT="/etc/letsencrypt/live/${EC2_DOMAIN}/fullchain.pem"
+    SSL_KEY="/etc/letsencrypt/live/${EC2_DOMAIN}/privkey.pem"
+    print_success "Using Let's Encrypt certificate"
+else
+    # Generate self-signed certificate if snakeoil doesn't exist
+    if [ ! -f /etc/ssl/certs/ssl-cert-snakeoil.pem ]; then
+        print_info "Generating self-signed SSL certificate..."
+        sudo apt-get install -y -qq ssl-cert > /dev/null 2>&1 || \
+        sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout /etc/ssl/private/ssl-cert-snakeoil.key \
+            -out /etc/ssl/certs/ssl-cert-snakeoil.pem \
+            -subj "/CN=${EC2_DOMAIN}" > /dev/null 2>&1
+        print_success "Self-signed certificate generated"
+    fi
+    SSL_CERT="/etc/ssl/certs/ssl-cert-snakeoil.pem"
+    SSL_KEY="/etc/ssl/private/ssl-cert-snakeoil.key"
+    print_info "Using self-signed certificate (run certbot for Let's Encrypt)"
 fi
 
-# Create nginx config (with self-signed cert initially)
+# Create nginx config
 print_info "Configuring nginx..."
 sudo tee /etc/nginx/sites-available/$EC2_DOMAIN > /dev/null << NGINXEOF
 # Redirect HTTP to HTTPS
@@ -339,16 +350,14 @@ server {
     }
 }
 
-# HTTPS Server Block (AWS ACM certificate)
+# HTTPS Server Block
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
     server_name ${EC2_DOMAIN} www.${EC2_DOMAIN};
 
-    # AWS ACM Certificate (obtain through AWS ACM console)
-    # For now, using self-signed (REPLACE WITH ACM CERTIFICATE)
-    ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
-    ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+    ssl_certificate ${SSL_CERT};
+    ssl_certificate_key ${SSL_KEY};
 
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
@@ -579,6 +588,31 @@ install_dependencies() {
     fi
 }
 
+# Ensure Let's Encrypt certificate is configured
+setup_ssl() {
+    print_header "Configuring SSL Certificate"
+    
+    # Check if Let's Encrypt cert exists (needs sudo to access letsencrypt directory)
+    if ssh -i "$EC2_KEY_PATH" \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        "$EC2_USER@$EC2_HOST" \
+        "sudo test -f /etc/letsencrypt/live/$EC2_DOMAIN/fullchain.pem"; then
+        
+        print_info "Let's Encrypt certificate found, configuring nginx..."
+        ssh -i "$EC2_KEY_PATH" \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            "$EC2_USER@$EC2_HOST" \
+            "sudo certbot --nginx -d $EC2_DOMAIN -d www.$EC2_DOMAIN --non-interactive --agree-tos --email admin@$EC2_DOMAIN && sudo systemctl reload nginx"
+        print_success "Let's Encrypt certificate configured"
+    else
+        print_warning "No Let's Encrypt certificate found. Using self-signed certificate."
+        print_info "To get a real certificate, run on EC2:"
+        print_info "  sudo certbot --nginx -d $EC2_DOMAIN -d www.$EC2_DOMAIN"
+    fi
+}
+
 # Start backend service
 start_backend() {
     print_header "Starting Backend Service"
@@ -710,6 +744,7 @@ main() {
     upload_build
     install_dependencies
     start_backend
+    setup_ssl
     show_summary
 }
 

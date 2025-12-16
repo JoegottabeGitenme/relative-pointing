@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   creator_id TEXT NOT NULL,
   creator_name TEXT NOT NULL,
   jira_base_url TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  last_activity_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS participants (
   id TEXT PRIMARY KEY,
@@ -44,3 +45,4 @@ CREATE INDEX IF NOT EXISTS idx_participants_session ON participants(session_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_column ON tasks(column_id);
 CREATE INDEX IF NOT EXISTS idx_columns_session ON columns(session_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity_at);
