@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   creator_id TEXT NOT NULL,
   creator_name TEXT NOT NULL,
   jira_base_url TEXT,
+  skipped_participants TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   last_activity_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

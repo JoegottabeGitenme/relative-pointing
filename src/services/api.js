@@ -273,6 +273,28 @@ class APIService {
    }
 
    /**
+    * Update skipped participants list
+    */
+   static async updateSkippedParticipants(roomCode, skippedParticipants) {
+     try {
+       const response = await fetch(`${API_BASE_URL}/sessions/${roomCode}`, {
+         method: 'PATCH',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ skipped_participants: skippedParticipants })
+       });
+
+       if (!response.ok) {
+         throw new Error('Failed to update skipped participants');
+       }
+
+       return await response.json();
+     } catch (error) {
+       console.error('Error updating skipped participants:', error);
+       throw error;
+     }
+   }
+
+   /**
     * Health check - verify backend is running
     */
    static async healthCheck() {

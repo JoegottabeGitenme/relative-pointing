@@ -471,7 +471,13 @@ function TaskBoard({ user, onLogout }) {
                   Logout
                 </button>
               )}
-              <ParticipantList participants={participants} currentUser={user} />
+              <ParticipantList 
+                participants={participants} 
+                currentUser={user} 
+                isCreator={isCreator}
+                skippedParticipants={session?.skipped_participants || []}
+                roomCode={roomCode}
+              />
             </div>
           </div>
         </div>

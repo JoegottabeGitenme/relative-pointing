@@ -183,11 +183,19 @@ router.get('/:roomCode', async (req, res) => {
        metadata: task.metadata ? JSON.parse(task.metadata) : {}
      }));
 
+     // Parse skipped_participants JSON
+     const processedSession = {
+       ...session,
+       skipped_participants: session.skipped_participants 
+         ? JSON.parse(session.skipped_participants) 
+         : []
+     };
+
      // Update session activity (viewing the session counts as activity)
      await touchSessionByRoomCode(normalizedCode);
 
      res.json({
-       session,
+       session: processedSession,
        participants,
        columns,
        tasks: processedTasks
@@ -288,15 +296,11 @@ router.post('/:roomCode/join', async (req, res) => {
   }
 });
 
-// Update session settings (Jira base URL)
+// Update session settings (Jira base URL, skipped participants)
 router.patch('/:roomCode', async (req, res) => {
   try {
     const { roomCode } = req.params;
-    const { jira_base_url } = req.body;
-
-    if (!jira_base_url) {
-      return res.status(400).json({ error: 'jira_base_url is required' });
-    }
+    const { jira_base_url, skipped_participants } = req.body;
 
     // Get session
     const session = await dbPromise.get(
@@ -308,13 +312,35 @@ router.patch('/:roomCode', async (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    // Update jira_base_url
+    // Build dynamic update query based on what's provided
+    const updates = [];
+    const values = [];
+
+    if (jira_base_url !== undefined) {
+      updates.push('jira_base_url = ?');
+      values.push(jira_base_url);
+    }
+
+    if (skipped_participants !== undefined) {
+      updates.push('skipped_participants = ?');
+      // Store as JSON string
+      values.push(JSON.stringify(skipped_participants));
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    values.push(session.id);
     await dbPromise.run(
-      `UPDATE sessions SET jira_base_url = ? WHERE id = ?`,
-      [jira_base_url, session.id]
+      `UPDATE sessions SET ${updates.join(', ')} WHERE id = ?`,
+      values
     );
 
-    res.json({ success: true, jira_base_url });
+    // Update session activity
+    await touchSessionByRoomCode(roomCode.toLowerCase());
+
+    res.json({ success: true, jira_base_url, skipped_participants });
   } catch (err) {
     console.error('Error updating session:', err);
     res.status(500).json({ error: 'Failed to update session' });

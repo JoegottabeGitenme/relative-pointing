@@ -75,7 +75,16 @@ function runMigrations(callback) {
         console.log('Migration: Added color_tag column to tasks');
       }
       
-      if (callback) callback();
+      // Migration 3: Add skipped_participants column to sessions if it doesn't exist
+      db.run(`ALTER TABLE sessions ADD COLUMN skipped_participants TEXT`, (err3) => {
+        if (err3 && err3.message.includes('duplicate column')) {
+          console.log('Migration: skipped_participants column already exists');
+        } else if (!err3) {
+          console.log('Migration: Added skipped_participants column to sessions');
+        }
+        
+        if (callback) callback();
+      });
     });
   });
 }
