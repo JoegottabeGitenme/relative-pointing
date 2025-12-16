@@ -155,6 +155,8 @@ function TaskBoard({ user, onLogout }) {
          await createColumnPromise;
        }
        
+       const sourceColumnId = draggedTask.column_id;
+       
        await APIService.moveTask(roomCode, taskId, targetColumnId, user?.id);
 
        // Clear the optimistic update after backend confirms
@@ -165,9 +167,23 @@ function TaskBoard({ user, onLogout }) {
          return updated;
        });
 
-       // Don't delete columns on move - let the backend or a dedicated cleanup process handle it
-       // This prevents race conditions where we might delete a column that other users are
-       // still using. The column will be deleted when the last task is deleted from it.
+       // Check if the source column is now empty and delete it
+       if (sourceColumnId && sourceColumnId !== 'unsorted') {
+         // Check remaining tasks in the source column (excluding the moved task)
+         const tasksInSourceColumn = displayTasks.filter(
+           (t) => t.column_id === sourceColumnId && String(t.id) !== taskId
+         );
+
+         // If source column is now empty, delete it
+         if (tasksInSourceColumn.length === 0) {
+           try {
+             await APIService.deleteColumn(roomCode, sourceColumnId);
+           } catch (deleteErr) {
+             console.error('Error deleting empty column:', deleteErr);
+             // Don't fail the whole operation if column deletion fails
+           }
+         }
+       }
        
      } catch (err) {
        console.error('Error moving task:', err);

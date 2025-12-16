@@ -52,3 +52,4 @@ Thumbs.db
 # Firebase
 firebase-debug.log
 firestore-debug.log
+/.env.remote

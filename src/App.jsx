@@ -1,27 +1,29 @@
 // src/App.jsx
 // Main application component with routing
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import SessionCreator from './components/SessionCreator';
 import TaskBoard from './components/TaskBoard';
 import { ThemeProvider } from './hooks/useTheme';
 
-function App() {
-  const [currentUser, setCurrentUser] = useState(null);
+// Helper to get initial user from localStorage (synchronous)
+function getStoredUser() {
+  const storedUserId = localStorage.getItem('userId');
+  const storedUserName = localStorage.getItem('userName');
+  
+  if (storedUserId && storedUserName) {
+    return {
+      id: storedUserId,
+      name: storedUserName,
+    };
+  }
+  return null;
+}
 
-  // Restore user from localStorage on mount
-  useEffect(() => {
-    const storedUserId = localStorage.getItem('userId');
-    const storedUserName = localStorage.getItem('userName');
-    
-    if (storedUserId && storedUserName) {
-      setCurrentUser({
-        id: storedUserId,
-        name: storedUserName,
-      });
-    }
-  }, []);
+function App() {
+  // Initialize user from localStorage synchronously to avoid redirect race condition
+  const [currentUser, setCurrentUser] = useState(getStoredUser);
 
   const handleUserLogout = () => {
     setCurrentUser(null);

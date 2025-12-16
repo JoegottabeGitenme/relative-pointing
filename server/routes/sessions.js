@@ -1,6 +1,6 @@
 const express = require('express');
 const { dbPromise } = require('../db');
-const { generateRoomCode } = require('../../src/utils/roomCodeGenerator');
+const { generateRoomCode } = require('../utils/roomCodeGenerator');
 const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router();

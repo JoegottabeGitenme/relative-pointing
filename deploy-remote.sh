@@ -7,8 +7,8 @@
 # Uses nvm (Node Version Manager) for Node.js environment management
 #
 # Usage:
-#   1. Copy .env.example to .env
-#   2. Fill in EC2 details in .env
+#   1. Copy .env.remote.example to .env.remote
+#   2. Fill in EC2 details in .env.remote
 #   3. Run: ./deploy-remote.sh
 #
 # That's it! Builds locally, uploads to EC2, uses nvm for Node management!
@@ -103,13 +103,13 @@ check_local_prerequisites() {
     fi
 }
 
-# Load configuration from .env
+# Load configuration from .env.remote
 load_env() {
-    if [ ! -f "$SCRIPT_DIR/.env" ]; then
-        print_error ".env file not found!"
+    if [ ! -f "$SCRIPT_DIR/.env.remote" ]; then
+        print_error ".env.remote file not found!"
         echo ""
-        echo "Please create .env file with EC2 configuration:"
-        echo "  1. Copy .env.example to .env"
+        echo "Please create .env.remote file with EC2 configuration:"
+        echo "  1. Copy .env.remote.example to .env.remote"
         echo "  2. Fill in your EC2 details (EC2_HOST, EC2_KEY_PATH, etc.)"
         echo "  3. Run this script again"
         echo ""
@@ -118,7 +118,7 @@ load_env() {
 
     # Load environment variables
     set -a
-    source "$SCRIPT_DIR/.env"
+    source "$SCRIPT_DIR/.env.remote"
     set +a
 
     # Validate required variables
@@ -126,7 +126,7 @@ load_env() {
     for var in "${required_vars[@]}"; do
         if [ -z "${!var}" ]; then
             print_error "Missing required variable: $var"
-            echo "Please check your .env file"
+            echo "Please check your .env.remote file"
             exit 1
         fi
     done
@@ -190,12 +190,22 @@ build_locally() {
     
     print_info "Installing dependencies..."
     cd "$SCRIPT_DIR"
-    npm ci > /dev/null 2>&1
+    # Clean cache to avoid ENOTEMPTY errors with npm ci
+    rm -rf node_modules/.cache 2>/dev/null || true
+    if ! npm ci; then
+        print_error "Failed to install dependencies"
+        exit 1
+    fi
     print_success "Dependencies installed"
     
     print_info "Building React production bundle..."
-    npm run build > /dev/null 2>&1
-    print_success "React app built successfully"
+    # Set production API URL for React build
+    export REACT_APP_API_URL="https://${EC2_DOMAIN}/api"
+    if ! npm run build; then
+        print_error "Failed to build React app"
+        exit 1
+    fi
+    print_success "React app built successfully (API: $REACT_APP_API_URL)"
     
     if [ ! -d "$SCRIPT_DIR/build" ]; then
         print_error "Build directory not found after build!"
@@ -304,9 +314,20 @@ sudo chown -R "$USER:$USER" "$EC2_APP_DIR"
 chmod -R 755 "$EC2_APP_DIR"
 print_success "Directories created"
 
+# Generate self-signed certificate if snakeoil doesn't exist
+if [ ! -f /etc/ssl/certs/ssl-cert-snakeoil.pem ]; then
+    print_info "Generating self-signed SSL certificate..."
+    sudo apt-get install -y -qq ssl-cert > /dev/null 2>&1 || \
+    sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout /etc/ssl/private/ssl-cert-snakeoil.key \
+        -out /etc/ssl/certs/ssl-cert-snakeoil.pem \
+        -subj "/CN=${EC2_DOMAIN}" > /dev/null 2>&1
+    print_success "Self-signed certificate generated"
+fi
+
 # Create nginx config (with self-signed cert initially)
 print_info "Configuring nginx..."
-sudo tee /etc/nginx/sites-available/$EC2_DOMAIN > /dev/null << 'NGINXEOF'
+sudo tee /etc/nginx/sites-available/$EC2_DOMAIN > /dev/null << NGINXEOF
 # Redirect HTTP to HTTPS
 server {
     listen 80;
@@ -314,7 +335,7 @@ server {
     server_name ${EC2_DOMAIN} www.${EC2_DOMAIN};
     
     location / {
-        return 301 https://$server_name$request_uri;
+        return 301 https://\$server_name\$request_uri;
     }
 }
 
@@ -347,13 +368,13 @@ server {
     # Serve React frontend (static)
     location / {
         root ${EC2_APP_DIR}/app/build;
-        try_files $uri $uri/ /index.html;
+        try_files \$uri \$uri/ /index.html;
         
         location = /index.html {
             add_header Cache-Control "no-cache, no-store, must-revalidate";
         }
         
-        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)\$ {
             expires 1y;
             add_header Cache-Control "public, immutable";
         }
@@ -363,12 +384,12 @@ server {
     location /api/ {
         proxy_pass http://localhost:5000/api/;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 NGINXEOF
@@ -390,7 +411,7 @@ NGINXEOF
 
 # Create systemd service that uses nvm
 print_info "Creating systemd service..."
-sudo tee /etc/systemd/system/relative-pointing-backend.service > /dev/null << 'SERVICEEOF'
+sudo tee /etc/systemd/system/relative-pointing-backend.service > /dev/null << SERVICEEOF
 [Unit]
 Description=Relative Pointing App - Backend API Server
 After=network.target
@@ -399,16 +420,16 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$EC2_APP_DIR/app
+WorkingDirectory=${EC2_APP_DIR}/app
 
 # Source nvm environment
-Environment="PATH=$HOME/.nvm/versions/node/v$NODE_VERSION/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PATH=$HOME/.nvm/versions/node/v${NODE_VERSION}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="NODE_ENV=production"
 Environment="PORT=5000"
-Environment="DATABASE_PATH=$EC2_APP_DIR/database/app.db"
-Environment="REACT_APP_API_URL=https://$EC2_DOMAIN/api"
+Environment="DATABASE_PATH=${EC2_APP_DIR}/database/app.db"
+Environment="REACT_APP_API_URL=https://${EC2_DOMAIN}/api"
 
-ExecStart=$HOME/.nvm/versions/node/v$NODE_VERSION/bin/npm run start:backend
+ExecStart=$HOME/.nvm/versions/node/v${NODE_VERSION}/bin/npm run start:backend
 
 Restart=on-failure
 RestartSec=10
@@ -439,7 +460,7 @@ EOF
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         "$EC2_USER@$EC2_HOST" \
-        "export EC2_APP_DIR='$EC2_APP_DIR'; export EC2_DOMAIN='$EC2_DOMAIN'; export NODE_VERSION='$NODE_VERSION'; bash -s" << SCRIPTEOF > /dev/null 2>&1
+        "export EC2_APP_DIR='$EC2_APP_DIR'; export EC2_DOMAIN='$EC2_DOMAIN'; export NODE_VERSION='$NODE_VERSION'; bash -s" << SCRIPTEOF
 $setup_script
 SCRIPTEOF
 
@@ -519,6 +540,8 @@ upload_build() {
         exit 1
     fi
     print_success "Server code uploaded"
+    
+
     
     # Upload package files
     print_info "Uploading package files..."
