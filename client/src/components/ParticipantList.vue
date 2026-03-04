@@ -1,6 +1,7 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import APIService from '../services/api';
+import SandTimer from './SandTimer.vue';
 
 const props = defineProps({
   participants: {
@@ -27,7 +28,37 @@ const props = defineProps({
     type: String,
     default: null,
   },
+  collapsed: {
+    type: Boolean,
+    default: false,
+  },
+  isMyTurn: {
+    type: Boolean,
+    default: false,
+  },
+  turnActive: {
+    type: Boolean,
+    default: false,
+  },
+  currentTurnColor: {
+    type: String,
+    default: '#4ECDC4',
+  },
+  turnStartedAt: {
+    type: String,
+    default: null,
+  },
+  accumulatedSand: {
+    type: Array,
+    default: () => [],
+  },
+  draining: {
+    type: Boolean,
+    default: false,
+  },
 });
+
+const emit = defineEmits(['toggleCollapse']);
 
 const COLORS = [
   '#FF6B6B',
@@ -39,9 +70,6 @@ const COLORS = [
   '#BB8FCE',
   '#85C1E2',
 ];
-
-const hoveredId = ref(null);
-const showTurnList = ref(false);
 
 function getColorForParticipant(index) {
   return COLORS[index % COLORS.length];
@@ -64,149 +92,189 @@ function toggleParticipant(participantId) {
     }
   );
 }
+
+// Track sidebar inner height for full-height canvas
+const sidebarInnerRef = ref(null);
+const sidebarHeight = ref(400);
+let resizeObserver = null;
+
+onMounted(() => {
+  if (sidebarInnerRef.value) {
+    sidebarHeight.value = sidebarInnerRef.value.clientHeight;
+    resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        sidebarHeight.value = entry.contentRect.height;
+      }
+    });
+    resizeObserver.observe(sidebarInnerRef.value);
+  }
+});
+
+onUnmounted(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
+});
 </script>
 
 <template>
-  <div class="relative">
-    <div class="flex items-center gap-2">
-      <span class="text-sm text-gray-600 dark:text-gray-400">
-        Participants ({{ participants.length }}):
-      </span>
-      <div class="flex gap-1 relative">
+  <aside
+    :class="[
+      'h-full flex-shrink-0 transition-all duration-300 border-r',
+      'bg-white dark:glass-panel-solid dark:border-white/10 border-gray-200',
+      collapsed ? 'w-16' : 'w-64',
+    ]"
+  >
+    <div
+      ref="sidebarInnerRef"
+      class="relative flex flex-col h-full overflow-hidden"
+    >
+      <!-- Full-height background sand canvas (everyone sees it) -->
+      <SandTimer
+        v-if="!collapsed && turnActive"
+        :is-host="true"
+        :is-my-turn="isMyTurn"
+        :turn-active="turnActive"
+        :current-color="currentTurnColor"
+        :turn-started-at="turnStartedAt"
+        :accumulated-sand="accumulatedSand"
+        :draining="draining"
+        :canvas-height="sidebarHeight"
+        class="absolute inset-0 z-0 pointer-events-none"
+      />
+
+      <!-- Header -->
+      <div
+        class="relative z-10 p-3 border-b border-gray-200 dark:border-white/10 flex items-center"
+        :class="collapsed ? 'justify-center' : 'justify-between'"
+      >
+        <span
+          v-if="!collapsed"
+          class="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400"
+        >
+          Participants ({{ activeParticipants.length }}/{{
+            participants.length
+          }})
+        </span>
+        <button
+          @click="emit('toggleCollapse')"
+          class="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-neon-cyan transition-colors text-sm"
+          :title="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+        >
+          {{ collapsed ? '▶' : '◀' }}
+        </button>
+      </div>
+
+      <!-- Participant list -->
+      <div class="relative z-10 flex-1 overflow-y-auto p-2 space-y-1">
         <template v-if="participants.length > 0">
           <div
             v-for="(participant, index) in participants"
             :key="participant.id"
-            class="relative"
-            @mouseenter="hoveredId = participant.id"
-            @mouseleave="hoveredId = null"
+            :class="[
+              'flex items-center gap-3 rounded-lg transition-all',
+              collapsed ? 'justify-center p-2' : 'px-3 py-2',
+              disabledParticipants.has(participant.user_id) ? 'opacity-40' : '',
+            ]"
           >
-            <div
-              class="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold cursor-pointer hover:scale-110 transition-transform"
-              :class="[
-                participant.user_id === currentTurnUserId
-                  ? 'ring-4 ring-green-400'
-                  : 'ring-2 ring-white dark:ring-gray-800',
-                {
-                  'opacity-40': disabledParticipants.has(participant.user_id),
-                },
-              ]"
-              :style="{ backgroundColor: getColorForParticipant(index) }"
-            >
-              {{ participant.user_name?.[0]?.toUpperCase() || '?' }}
+            <!-- Avatar -->
+            <div class="relative flex-shrink-0">
+              <div
+                class="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-semibold transition-all"
+                :class="[
+                  participant.user_id === currentTurnUserId
+                    ? 'ring-2 ring-neon-green shadow-glow-green-sm animate-glow-pulse'
+                    : 'ring-2 ring-white/20',
+                ]"
+                :style="{ backgroundColor: getColorForParticipant(index) }"
+                :title="collapsed ? participant.user_name : undefined"
+              >
+                {{ participant.user_name?.[0]?.toUpperCase() || '?' }}
+              </div>
             </div>
 
-            <!-- Tooltip -->
-            <div
-              v-if="hoveredId === participant.id"
-              class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 dark:bg-gray-700 text-white text-xs rounded whitespace-nowrap z-10"
-            >
-              {{ participant.user_name }}
-              <template v-if="disabledParticipants.has(participant.user_id)">
-                (skipped)
-              </template>
-              <div
-                class="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-800 dark:border-t-gray-700"
-              />
-            </div>
+            <!-- Name & status (expanded only) -->
+            <template v-if="!collapsed">
+              <div class="flex-1 min-w-0">
+                <div
+                  class="text-sm font-medium truncate"
+                  :class="
+                    participant.user_id === currentTurnUserId
+                      ? 'text-gray-800 dark:neon-text-green'
+                      : 'text-gray-700 dark:text-gray-300'
+                  "
+                >
+                  {{ participant.user_name }}
+                  <span
+                    v-if="participant.user_id === currentUser?.id"
+                    class="text-xs text-gray-400 dark:text-gray-500"
+                    >(you)</span
+                  >
+                </div>
+                <div
+                  v-if="participant.user_id === currentTurnUserId"
+                  class="text-[10px] font-semibold uppercase tracking-wider text-green-600 dark:text-neon-green"
+                >
+                  Current turn
+                </div>
+                <div
+                  v-else-if="disabledParticipants.has(participant.user_id)"
+                  class="text-[10px] text-gray-400 dark:text-gray-500 line-through"
+                >
+                  Skipped
+                </div>
+              </div>
+
+              <!-- Skip toggle (creator only) -->
+              <button
+                v-if="isCreator"
+                @click.prevent.stop="toggleParticipant(participant.user_id)"
+                class="w-5 h-5 rounded border-2 flex items-center justify-center transition-colors cursor-pointer flex-shrink-0"
+                :class="
+                  disabledParticipants.has(participant.user_id)
+                    ? 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-neon-bg-600 hover:border-green-400 dark:hover:border-neon-green'
+                    : 'border-green-500 dark:border-neon-green bg-green-500 dark:bg-neon-green/80 text-white hover:bg-green-600'
+                "
+                :title="
+                  disabledParticipants.has(participant.user_id)
+                    ? 'Include in turn order'
+                    : 'Skip this participant'
+                "
+              >
+                <svg
+                  v-if="!disabledParticipants.has(participant.user_id)"
+                  class="w-3 h-3"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    :stroke-width="3"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              </button>
+            </template>
           </div>
         </template>
-        <span v-else class="text-xs text-gray-500 dark:text-gray-400">
-          None
-        </span>
-      </div>
-      <button
-        v-if="participants.length > 0"
-        @click="showTurnList = !showTurnList"
-        class="ml-2 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
-      >
-        {{ showTurnList ? 'hide turns' : 'whose turn?' }}
-      </button>
-    </div>
-
-    <!-- Whose Turn List -->
-    <div
-      v-if="showTurnList && participants.length > 0"
-      class="absolute right-0 top-full mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 z-20 min-w-[200px]"
-      @click.stop
-    >
-      <div
-        class="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide"
-      >
-        Whose turn is it anyways?
-      </div>
-      <ul class="space-y-1">
-        <li
-          v-for="(participant, index) in participants"
-          :key="participant.id"
-          class="flex items-center gap-2 text-sm"
-          :class="
-            disabledParticipants.has(participant.user_id)
-              ? 'text-gray-400 dark:text-gray-500 line-through'
-              : 'text-gray-700 dark:text-gray-300'
-          "
+        <p
+          v-else
+          class="text-xs text-gray-400 dark:text-gray-500 text-center py-4"
         >
-          <button
-            v-if="isCreator"
-            @click.prevent.stop="toggleParticipant(participant.user_id)"
-            class="w-4 h-4 rounded border-2 flex items-center justify-center transition-colors cursor-pointer"
-            :class="
-              disabledParticipants.has(participant.user_id)
-                ? 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 hover:border-green-400'
-                : 'border-green-500 bg-green-500 text-white hover:bg-green-600'
-            "
-            :title="
-              disabledParticipants.has(participant.user_id)
-                ? 'Include in turn order'
-                : 'Skip this participant'
-            "
-          >
-            <svg
-              v-if="!disabledParticipants.has(participant.user_id)"
-              class="w-3 h-3"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                :stroke-width="3"
-                d="M5 13l4 4L19 7"
-              />
-            </svg>
-          </button>
-          <span
-            v-else
-            class="w-3 h-3 rounded-full flex-shrink-0"
-            :class="{
-              'opacity-40': disabledParticipants.has(participant.user_id),
-            }"
-            :style="{ backgroundColor: getColorForParticipant(index) }"
-          />
-          <span
-            :class="{
-              'font-semibold': participant.user_id === currentUser?.id,
-            }"
-          >
-            {{ participant.user_name }}
-            <template v-if="participant.user_id === currentUser?.id">
-              (you)
-            </template>
-            <template v-if="participant.user_id === currentTurnUserId">
-              <span class="text-green-600 dark:text-green-400"
-                >(current turn)</span
-              >
-            </template>
-          </span>
-        </li>
-      </ul>
+          {{ collapsed ? '—' : 'No participants' }}
+        </p>
+      </div>
+
+      <!-- Footer -->
       <div
-        v-if="activeParticipants.length < participants.length"
-        class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400"
+        v-if="!collapsed && activeParticipants.length < participants.length"
+        class="relative z-10 p-3 border-t border-gray-200 dark:border-white/10 text-xs text-gray-500 dark:text-gray-400 text-center"
       >
         {{ activeParticipants.length }} of {{ participants.length }} active
       </div>
     </div>
-  </div>
+  </aside>
 </template>

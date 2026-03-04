@@ -43,7 +43,7 @@ function onDragChange(evt) {
     :class="[
       'rounded-lg flex-shrink-0 min-h-[500px] border-2 border-dashed flex items-center justify-center text-center transition-all duration-300 ease-out transform',
       widthClass,
-      'border-gray-300 bg-gray-50 dark:border-gray-600 dark:bg-gray-800/50',
+      'border-gray-300 bg-gray-50 dark:border-neon-cyan/20 dark:bg-neon-cyan/5 dark:animate-border-glow',
     ]"
     ghost-class="opacity-0"
     @change="onDragChange"
