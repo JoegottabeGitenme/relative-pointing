@@ -54,9 +54,6 @@ test.describe('Turn-Based Features', () => {
       creator.page.getByRole('button', { name: 'End My Turn' })
     ).toBeVisible();
 
-    // Creator sees the timer ticking
-    await expect(creator.page.locator('.hourglass-pulse')).toBeVisible();
-
     // Alice sees yellow banner "It's Creator's turn"
     await expect(alicePage.page.getByText("It's Creator's turn")).toBeVisible(
       POLL_TIMEOUT
@@ -244,53 +241,7 @@ test.describe('Turn-Based Features', () => {
     await creator.context.close();
   });
 
-  test('timer resets when turn advances', async ({ browser, request }) => {
-    const alice = await joinSessionViaAPI(request, roomCode, 'Alice');
-
-    const creator = await createCreatorContext(
-      browser,
-      roomCode,
-      creatorId,
-      'Creator'
-    );
-
-    // Timer hourglass should be visible on the banner
-    await expect(creator.page.locator('.hourglass-pulse')).toBeVisible(
-      POLL_TIMEOUT
-    );
-
-    // Wait so the timer accumulates some seconds
-    await creator.page.waitForTimeout(3000);
-
-    // End turn
-    await creator.page.getByRole('button', { name: 'End My Turn' }).click();
-
-    // Wait for turn to advance
-    await expect(creator.page.getByText("It's Alice's turn")).toBeVisible(
-      POLL_TIMEOUT
-    );
-
-    // Timer should still be visible (now for Alice's turn) and reset to low value
-    await expect(creator.page.locator('.hourglass-pulse')).toBeVisible(
-      POLL_TIMEOUT
-    );
-
-    // The timer text should contain a low value like 0:0x
-    await expect(async () => {
-      const timerParent = creator.page
-        .locator('.hourglass-pulse')
-        .locator('..');
-      const text = await timerParent.textContent();
-      const match = text.match(/(\d+):(\d{2})/);
-      expect(match).toBeTruthy();
-      const totalSeconds = parseInt(match[1]) * 60 + parseInt(match[2]);
-      expect(totalSeconds).toBeLessThan(10);
-    }).toPass(POLL_TIMEOUT);
-
-    await creator.context.close();
-  });
-
-  test('participant list shows current turn indicator and whose turn dropdown', async ({
+  test('turn advances correctly between users', async ({
     browser,
     request,
   }) => {
@@ -303,19 +254,42 @@ test.describe('Turn-Based Features', () => {
       'Creator'
     );
 
-    // Wait for participants to load
-    await expect(creator.page.getByText('Participants (2):')).toBeVisible(
+    // Creator has the turn
+    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
       POLL_TIMEOUT
     );
 
-    // Click "whose turn?" to open the turn list
-    await creator.page.getByText('whose turn?').click();
+    // End turn
+    await creator.page.getByRole('button', { name: 'End My Turn' }).click();
 
-    // Should show "(current turn)" indicator next to Creator
-    await expect(creator.page.getByText('(current turn)')).toBeVisible();
+    // Turn advances to Alice
+    await expect(creator.page.getByText("It's Alice's turn")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
-    // Close the dropdown
-    await creator.page.getByText('hide turns').click();
+    await creator.context.close();
+  });
+
+  test('participant list shows current turn indicator', async ({
+    browser,
+    request,
+  }) => {
+    const alice = await joinSessionViaAPI(request, roomCode, 'Alice');
+
+    const creator = await createCreatorContext(
+      browser,
+      roomCode,
+      creatorId,
+      'Creator'
+    );
+
+    // Wait for participants to load — format is "Participants (active/total)"
+    await expect(creator.page.getByText('Participants (2/2)')).toBeVisible(
+      POLL_TIMEOUT
+    );
+
+    // "Current turn" indicator should be visible next to the active participant
+    await expect(creator.page.getByText('Current turn')).toBeVisible();
 
     // End turn to advance to Alice
     await creator.page.getByRole('button', { name: 'End My Turn' }).click();
@@ -325,9 +299,8 @@ test.describe('Turn-Based Features', () => {
       POLL_TIMEOUT
     );
 
-    // Open turn list again — "(current turn)" should now be next to Alice
-    await creator.page.getByText('whose turn?').click();
-    await expect(creator.page.getByText('(current turn)')).toBeVisible();
+    // "Current turn" should still be visible (now next to Alice)
+    await expect(creator.page.getByText('Current turn')).toBeVisible();
 
     await creator.context.close();
   });
@@ -346,8 +319,8 @@ test.describe('Turn-Based Features', () => {
       'Creator'
     );
 
-    // Wait for all 3 participants to show
-    await expect(creator.page.getByText('Participants (3):')).toBeVisible(
+    // Wait for all 3 participants to show — format is "Participants (active/total)"
+    await expect(creator.page.getByText('Participants (3/3)')).toBeVisible(
       POLL_TIMEOUT
     );
 

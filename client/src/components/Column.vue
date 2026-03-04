@@ -58,14 +58,14 @@ const localTasks = computed({
 
 const variantClasses = computed(() => {
   if (props.variant === 'tasks') {
-    return 'bg-blue-50 dark:bg-blue-950 border-2 border-blue-300 dark:border-blue-700';
+    return 'bg-blue-50 dark:bg-neon-bg-700/60 border-2 border-blue-300 dark:border-neon-cyan/20 dark:neon-border-cyan';
   }
-  return 'bg-gray-100 dark:bg-gray-800';
+  return 'bg-gray-100 dark:glass-panel-solid';
 });
 
 const titleClasses = computed(() => {
   if (props.variant === 'tasks') {
-    return 'text-lg font-bold text-blue-900 dark:text-blue-200';
+    return 'text-lg font-bold text-blue-900 dark:neon-text-cyan';
   }
   return 'font-semibold text-gray-700 dark:text-gray-200';
 });

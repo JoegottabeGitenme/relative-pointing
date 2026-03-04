@@ -109,13 +109,13 @@ onUnmounted(() => {
     <!-- Dragging overlay -->
     <div
       v-if="isDragging"
-      class="fixed inset-0 bg-blue-500/20 backdrop-blur-sm flex items-center justify-center z-40 pointer-events-none"
+      class="fixed inset-0 bg-blue-500/20 dark:bg-neon-cyan/10 backdrop-blur-sm flex items-center justify-center z-40 pointer-events-none"
     >
       <div
-        class="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-2xl text-center"
+        class="bg-white dark:glass-panel-solid p-8 rounded-lg shadow-2xl dark:shadow-glow-cyan text-center"
       >
         <svg
-          class="w-16 h-16 mx-auto mb-4 text-blue-600 animate-bounce"
+          class="w-16 h-16 mx-auto mb-4 text-blue-600 dark:text-neon-cyan animate-bounce"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -136,7 +136,7 @@ onUnmounted(() => {
     <!-- Error message -->
     <div
       v-if="error"
-      class="fixed top-4 right-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 shadow-lg z-50 max-w-sm"
+      class="fixed top-4 right-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500/30 rounded-lg p-4 shadow-lg z-50 max-w-sm"
     >
       <p class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
     </div>
@@ -144,12 +144,14 @@ onUnmounted(() => {
     <!-- Loading indicator -->
     <div
       v-if="isUploading"
-      class="fixed bottom-4 right-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 shadow-lg z-50 flex items-center gap-3"
+      class="fixed bottom-4 right-4 bg-blue-50 dark:bg-neon-bg-700 border border-blue-200 dark:border-neon-cyan/30 rounded-lg p-4 shadow-lg dark:shadow-glow-cyan-sm z-50 flex items-center gap-3"
     >
       <div
-        class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"
+        class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 dark:border-neon-cyan"
       ></div>
-      <p class="text-sm text-blue-600 dark:text-blue-400">Importing tasks...</p>
+      <p class="text-sm text-blue-600 dark:neon-text-cyan">
+        Importing tasks...
+      </p>
     </div>
   </template>
 </template>
