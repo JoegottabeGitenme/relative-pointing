@@ -5,10 +5,11 @@ const fs = require('fs');
 // Session inactivity timeout (15 minutes)
 const SESSION_TIMEOUT_MS = 15 * 60 * 1000;
 
-// Presence thresholds
-const OFFLINE_THRESHOLD_S = 15; // seconds before a user is considered offline
-const AUTO_SKIP_TURN_S = 30; // seconds offline before auto-skipping their turn
-const AUTO_TRANSFER_OWNER_S = 60; // seconds offline before auto-transferring ownership
+// Presence thresholds (configurable via env for testing)
+const OFFLINE_THRESHOLD_S = parseInt(process.env.OFFLINE_THRESHOLD_S, 10) || 15;
+const AUTO_SKIP_TURN_S = parseInt(process.env.AUTO_SKIP_TURN_S, 10) || 30;
+const AUTO_TRANSFER_OWNER_S =
+  parseInt(process.env.AUTO_TRANSFER_OWNER_S, 10) || 60;
 
 const DB_PATH = path.join(__dirname, 'app.db');
 
@@ -289,8 +290,10 @@ function startPresenceCheck() {
         .replace('T', ' ')
         .replace(/\.\d{3}Z$/, '');
 
-      // Get all active sessions
-      const sessions = await dbPromise.all(`SELECT * FROM sessions`);
+      // Get recently active sessions only (active within the last hour)
+      const sessions = await dbPromise.all(
+        `SELECT * FROM sessions WHERE last_activity_at > datetime('now', '-1 hour')`
+      );
 
       for (const session of sessions) {
         const participants = await dbPromise.all(

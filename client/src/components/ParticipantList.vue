@@ -3,7 +3,7 @@ import { ref, computed } from 'vue';
 import APIService from '../services/api';
 import { useSessionStore } from '../stores/session';
 
-const OFFLINE_THRESHOLD_MS = 15 * 1000; // Must match server OFFLINE_THRESHOLD_S
+const sessionStore = useSessionStore();
 
 const props = defineProps({
   participants: {
@@ -64,7 +64,8 @@ const activeParticipants = computed(() =>
 function isOnline(participant) {
   if (!participant.last_seen_at) return false;
   const lastSeen = new Date(participant.last_seen_at + 'Z').getTime();
-  return Date.now() - lastSeen < OFFLINE_THRESHOLD_MS;
+  const thresholdMs = sessionStore.serverConfig.offlineThresholdSeconds * 1000;
+  return Date.now() - lastSeen < thresholdMs;
 }
 
 function toggleParticipant(participantId) {
@@ -82,7 +83,6 @@ function toggleParticipant(participantId) {
 function handleTransferClick(participantUserId) {
   if (confirmTransferId.value === participantUserId) {
     // Second click — confirm transfer
-    const sessionStore = useSessionStore();
     sessionStore.transferOwnership(participantUserId).catch((err) => {
       console.error('Failed to transfer ownership:', err);
     });
@@ -91,6 +91,11 @@ function handleTransferClick(participantUserId) {
     // First click — show confirmation
     confirmTransferId.value = participantUserId;
   }
+}
+
+function toggleTurnList() {
+  showTurnList.value = !showTurnList.value;
+  if (!showTurnList.value) confirmTransferId.value = null;
 }
 
 function cancelTransfer() {
@@ -142,12 +147,14 @@ function cancelTransfer() {
               class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 dark:bg-gray-700 text-white text-xs rounded whitespace-nowrap z-10"
             >
               {{ participant.user_name }}
-              <template v-if="participant.user_id === creatorId">
-                (owner)
-              </template>
               <template v-if="!isOnline(participant)"> (offline) </template>
-              <template v-if="disabledParticipants.has(participant.user_id)">
+              <template
+                v-else-if="disabledParticipants.has(participant.user_id)"
+              >
                 (skipped)
+              </template>
+              <template v-else-if="participant.user_id === creatorId">
+                (owner)
               </template>
               <div
                 class="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-800 dark:border-t-gray-700"
@@ -161,7 +168,7 @@ function cancelTransfer() {
       </div>
       <button
         v-if="participants.length > 0"
-        @click="showTurnList = !showTurnList"
+        @click="toggleTurnList"
         class="ml-2 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
       >
         {{ showTurnList ? 'hide turns' : 'whose turn?' }}

@@ -12,6 +12,7 @@ export const useSessionStore = defineStore('session', () => {
   const loading = ref(true);
   const error = ref(null);
   const roomCode = ref(null);
+  const serverConfig = ref({ offlineThresholdSeconds: 15 }); // default fallback
 
   // Optimistic state
   const optimisticTasks = ref({});
@@ -93,6 +94,7 @@ export const useSessionStore = defineStore('session', () => {
       participants.value = data.participants || [];
       tasks.value = data.tasks || [];
       columns.value = data.columns || [];
+      if (data.config) serverConfig.value = data.config;
       error.value = null;
     } catch (err) {
       console.error('Session fetch error:', err);
@@ -424,6 +426,7 @@ export const useSessionStore = defineStore('session', () => {
     loading,
     error,
     roomCode,
+    serverConfig,
     // Computed
     displayColumns,
     displayTasks,

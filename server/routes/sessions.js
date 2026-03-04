@@ -3,6 +3,7 @@ const {
   dbPromise,
   touchSessionByRoomCode,
   touchParticipant,
+  OFFLINE_THRESHOLD_S,
 } = require('../db');
 const { generateRoomCode } = require('../utils/roomCodeGenerator');
 const { v4: uuidv4 } = require('uuid');
@@ -242,6 +243,9 @@ router.get('/:roomCode', async (req, res) => {
       participants,
       columns,
       tasks: processedTasks,
+      config: {
+        offlineThresholdSeconds: OFFLINE_THRESHOLD_S,
+      },
     });
   } catch (err) {
     console.error('Error fetching session:', err);
