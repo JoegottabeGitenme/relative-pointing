@@ -96,10 +96,22 @@ function DropZoneOverlay({ roomCode, isCreator, onTasksImported }) {
       {isDragging && (
         <div className="fixed inset-0 bg-blue-500/20 backdrop-blur-sm flex items-center justify-center z-40 pointer-events-none">
           <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-2xl text-center">
-            <svg className="w-16 h-16 mx-auto mb-4 text-blue-600 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            <svg
+              className="w-16 h-16 mx-auto mb-4 text-blue-600 animate-bounce"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+              />
             </svg>
-            <p className="text-lg font-semibold text-gray-800 dark:text-white">Drop CSV to import tasks</p>
+            <p className="text-lg font-semibold text-gray-800 dark:text-white">
+              Drop CSV to import tasks
+            </p>
           </div>
         </div>
       )}
@@ -115,7 +127,9 @@ function DropZoneOverlay({ roomCode, isCreator, onTasksImported }) {
       {isUploading && (
         <div className="fixed bottom-4 right-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 shadow-lg z-50 flex items-center gap-3">
           <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-          <p className="text-sm text-blue-600 dark:text-blue-400">Importing tasks...</p>
+          <p className="text-sm text-blue-600 dark:text-blue-400">
+            Importing tasks...
+          </p>
         </div>
       )}
     </>
