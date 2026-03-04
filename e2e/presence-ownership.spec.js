@@ -87,7 +87,7 @@ test.describe('Presence Tracking', () => {
     );
 
     // Both should be visible initially
-    await expect(creator.page.getByText('Participants (2):')).toBeVisible(
+    await expect(creator.page.getByText('Participants (2/2)')).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -97,10 +97,7 @@ test.describe('Presence Tracking', () => {
     // Wait for Alice to be considered offline (>15s threshold)
     await sleep(17000);
 
-    // Open the "whose turn?" dropdown
-    await creator.page.getByText('whose turn?').click();
-
-    // Alice should be shown as offline in the turn list
+    // Alice should be shown as offline in the sidebar participant list
     await expect(creator.page.getByText('(offline)')).toBeVisible(POLL_TIMEOUT);
 
     await creator.context.close();
@@ -129,10 +126,7 @@ test.describe('Presence Tracking', () => {
     // Wait for polling to establish presence
     await sleep(3000);
 
-    // Open the turn list on creator's page
-    await creator.page.getByText('whose turn?').click();
-
-    // Neither user should have "(offline)" indicator
+    // Neither user should have "(offline)" indicator in the sidebar
     const offlineLabels = creator.page.getByText('(offline)');
     await expect(offlineLabels).toHaveCount(0);
 
@@ -261,7 +255,7 @@ test.describe('Manual Ownership Transfer', () => {
     await creator.context.close();
   });
 
-  test('owner star indicator shown in participant dropdown', async ({
+  test('owner star indicator shown in participant list', async ({
     browser,
     request,
   }) => {
@@ -274,10 +268,7 @@ test.describe('Manual Ownership Transfer', () => {
       'Creator'
     );
 
-    // Open the turn list
-    await creator.page.getByText('whose turn?').click();
-
-    // The owner star character (★) should be visible
+    // The owner star character (★) should be visible in the sidebar
     await expect(creator.page.locator('text=★')).toBeVisible(POLL_TIMEOUT);
 
     await creator.context.close();
@@ -296,18 +287,14 @@ test.describe('Manual Ownership Transfer', () => {
       'Creator'
     );
 
-    // Wait for Alice to appear
-    await expect(creator.page.getByText('Participants (2):')).toBeVisible(
+    // Wait for Alice to appear in the sidebar
+    await expect(creator.page.getByText('Participants (2/2)')).toBeVisible(
       POLL_TIMEOUT
     );
 
-    // Open the turn list
-    await creator.page.getByText('whose turn?').click();
-
-    // The transfer button (person icon SVG) should be visible for Alice
+    // The transfer button (person icon SVG) should be visible for Alice in the sidebar
     // There should be exactly one transfer button (not for the creator themselves)
-    const turnList = creator.page.locator('.absolute.right-0');
-    const transferButtons = turnList.locator(
+    const transferButtons = creator.page.locator(
       'button[title="Transfer ownership"]'
     );
     await expect(transferButtons).toHaveCount(1, POLL_TIMEOUT);

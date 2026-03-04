@@ -31,11 +31,11 @@ test.describe('Multi-User Session Management', () => {
       'Bob'
     );
 
-    // Both should see "Participants (3):" — Creator + Alice + Bob
-    await expect(alice.page.getByText('Participants (3):')).toBeVisible(
+    // Both should see "Participants (3/3)" — Creator + Alice + Bob
+    await expect(alice.page.getByText('Participants (3/3)')).toBeVisible(
       POLL_TIMEOUT
     );
-    await expect(bob.page.getByText('Participants (3):')).toBeVisible(
+    await expect(bob.page.getByText('Participants (3/3)')).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -67,13 +67,13 @@ test.describe('Multi-User Session Management', () => {
     );
 
     // Creator + 3 joiners = 4
-    await expect(alice.page.getByText('Participants (4):')).toBeVisible(
+    await expect(alice.page.getByText('Participants (4/4)')).toBeVisible(
       POLL_TIMEOUT
     );
-    await expect(bob.page.getByText('Participants (4):')).toBeVisible(
+    await expect(bob.page.getByText('Participants (4/4)')).toBeVisible(
       POLL_TIMEOUT
     );
-    await expect(charlie.page.getByText('Participants (4):')).toBeVisible(
+    await expect(charlie.page.getByText('Participants (4/4)')).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -95,7 +95,7 @@ test.describe('Multi-User Session Management', () => {
     );
 
     // Initially: Creator + Alice = 2
-    await expect(alice.page.getByText('Participants (2):')).toBeVisible(
+    await expect(alice.page.getByText('Participants (2/2)')).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -108,7 +108,7 @@ test.describe('Multi-User Session Management', () => {
     );
 
     // Alice should see the count update to 3 after poll
-    await expect(alice.page.getByText('Participants (3):')).toBeVisible(
+    await expect(alice.page.getByText('Participants (3/3)')).toBeVisible(
       POLL_TIMEOUT
     );
 

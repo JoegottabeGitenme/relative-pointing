@@ -49,7 +49,7 @@ const formattedTime = computed(() => {
 <template>
   <span
     v-if="turnStartedAt"
-    class="inline-flex items-center gap-1 text-sm font-mono text-gray-600 dark:text-gray-300"
+    class="inline-flex items-center gap-1 text-sm font-mono text-gray-600 dark:neon-text-green"
   >
     <span class="hourglass-pulse">&#9203;</span>
     {{ formattedTime }}

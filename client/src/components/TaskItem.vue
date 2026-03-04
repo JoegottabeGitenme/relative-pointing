@@ -1,8 +1,7 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { computed } from 'vue';
 import { buildJiraUrl, detectJiraBaseUrl } from '../utils/jiraUrlBuilder';
-import { getColorClasses } from './taskColors';
-import ColorPicker from './ColorPicker.vue';
+import { getColorClasses, COLOR_OPTIONS } from './taskColors';
 
 const props = defineProps({
   task: {
@@ -33,8 +32,6 @@ const props = defineProps({
 
 const emit = defineEmits(['deleteTask', 'updateColor', 'showInfo']);
 
-const showColorPicker = ref(false);
-
 const colorClasses = computed(() => getColorClasses(props.task.color_tag));
 
 const displayId = computed(() => props.task.display_id || props.task.id);
@@ -64,12 +61,14 @@ function openJira(e) {
 <template>
   <div
     :class="[
-      colorClasses.bg,
-      'p-3 rounded shadow-sm transition-opacity group relative',
+      'p-3 rounded-lg shadow-sm transition-all group relative',
+      'bg-white dark:glass-card',
       dimmed
         ? 'opacity-40 pointer-events-none'
-        : 'cursor-grab active:cursor-grabbing hover:shadow-md',
-      task.color_tag ? `border-l-4 ${colorClasses.border}` : '',
+        : 'cursor-grab active:cursor-grabbing hover:shadow-md dark:hover:shadow-card-hover',
+      task.color_tag
+        ? `border-l-4 ${colorClasses.border}`
+        : 'border-l-4 border-transparent',
     ]"
   >
     <div class="flex items-start justify-between gap-2">
@@ -77,7 +76,7 @@ function openJira(e) {
         <a
           v-if="jiraUrl"
           :href="jiraUrl"
-          class="no-drag text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline break-words"
+          class="no-drag text-sm font-medium text-blue-600 dark:neon-text-cyan hover:text-blue-800 dark:hover:text-cyan-200 hover:underline break-words"
           :title="`Open ${displayId} in Jira`"
           target="_blank"
           rel="noopener noreferrer"
@@ -115,30 +114,24 @@ function openJira(e) {
         ✕
       </button>
     </div>
-    <div class="flex items-center gap-2 mt-2">
-      <div v-if="showColor" class="relative">
+    <!-- Inline color pills + details -->
+    <div class="flex items-center gap-2 mt-2 flex-wrap">
+      <template v-if="showColor">
         <button
-          class="no-drag text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center gap-1"
-          title="Set color tag"
+          v-for="color in COLOR_OPTIONS"
+          :key="color.id || 'none'"
+          class="no-drag px-1.5 py-0.5 rounded-full text-[10px] font-medium transition-all cursor-pointer hover:scale-105"
+          :class="task.color_tag === color.id ? color.pillActive : color.pill"
+          :title="color.name"
           @pointerdown.stop
-          @click.prevent.stop="showColorPicker = !showColorPicker"
+          @click.prevent.stop="handleColorSelect(color.id)"
         >
-          <span
-            class="w-3 h-3 rounded-full"
-            :class="colorClasses.dot || 'bg-gray-300 dark:bg-gray-500'"
-          ></span>
-          color
+          {{ color.name }}
         </button>
-        <ColorPicker
-          v-if="showColorPicker"
-          :current-color="task.color_tag"
-          @select-color="handleColorSelect"
-          @close="showColorPicker = false"
-        />
-      </div>
+      </template>
       <button
         v-if="showInfo"
-        class="no-drag text-xs text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+        class="no-drag text-xs text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-neon-cyan transition-colors ml-auto"
         title="View task details"
         @pointerdown.stop
         @click.prevent.stop="emit('showInfo', task)"

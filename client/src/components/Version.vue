@@ -10,7 +10,7 @@ defineProps({
 </script>
 
 <template>
-  <span :class="['text-xs text-gray-400 dark:text-gray-500', $props.class]">
+  <span :class="['text-xs text-gray-400 dark:text-neon-cyan/40', $props.class]">
     v{{ version }}
   </span>
 </template>

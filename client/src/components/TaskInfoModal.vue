@@ -25,30 +25,30 @@ const fields = computed(() => {
 
 function priorityColor(priority) {
   const p = String(priority).toLowerCase();
-  if (p.includes('high')) return 'bg-red-500';
-  if (p.includes('medium')) return 'bg-yellow-500';
-  return 'bg-green-500';
+  if (p.includes('high')) return 'bg-red-500 dark:bg-neon-red';
+  if (p.includes('medium')) return 'bg-yellow-500 dark:bg-neon-yellow';
+  return 'bg-green-500 dark:bg-neon-green';
 }
 </script>
 
 <template>
   <div
-    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+    class="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center z-50"
     @click.self="emit('close')"
   >
     <div
-      class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
+      class="bg-white dark:glass-panel-solid rounded-lg shadow-xl dark:shadow-card max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
     >
       <!-- Header -->
       <div
-        class="sticky top-0 px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex items-center justify-between"
+        class="sticky top-0 px-6 py-4 border-b border-gray-200 dark:border-white/10 bg-white dark:bg-neon-bg-800 flex items-center justify-between"
       >
         <h2 class="text-xl font-bold text-gray-800 dark:text-white">
           Task Details
         </h2>
         <button
           @click="emit('close')"
-          class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-2xl leading-none"
+          class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-neon-cyan text-2xl leading-none transition-colors"
         >
           ×
         </button>
@@ -66,7 +66,7 @@ function priorityColor(priority) {
             class="text-sm text-gray-500 dark:text-gray-400"
           >
             ID:
-            <span class="font-mono">{{
+            <span class="font-mono dark:neon-text-cyan">{{
               String(task.display_id || task.id)
             }}</span>
           </p>
@@ -143,7 +143,7 @@ function priorityColor(priority) {
             <div
               v-for="key in fields"
               :key="key"
-              class="flex gap-3 pb-3 border-b border-gray-200 dark:border-gray-700 last:border-0"
+              class="flex gap-3 pb-3 border-b border-gray-200 dark:border-white/10 last:border-0"
             >
               <div
                 class="text-xs font-medium text-gray-500 dark:text-gray-400 min-w-[120px] break-words"
@@ -166,7 +166,7 @@ function priorityColor(priority) {
             (!metadata ||
               (!metadata.issueType && !metadata.priority && !metadata.status))
           "
-          class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg text-center"
+          class="p-4 bg-gray-50 dark:bg-neon-bg-700 rounded-lg text-center"
         >
           <p class="text-sm text-gray-500 dark:text-gray-400">
             No additional metadata available for this task
@@ -176,11 +176,11 @@ function priorityColor(priority) {
 
       <!-- Footer -->
       <div
-        class="sticky bottom-0 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 flex justify-end"
+        class="sticky bottom-0 px-6 py-4 border-t border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-neon-bg-800 flex justify-end"
       >
         <button
           @click="emit('close')"
-          class="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
+          class="px-4 py-2 bg-gray-200 dark:bg-white/10 text-gray-800 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-white/20 transition-colors"
         >
           Close
         </button>
