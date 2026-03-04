@@ -135,10 +135,10 @@ async function createAuthenticatedUserInSession(
   const { context, page, userId } = await createUserContext(browser, userName);
 
   // Join session via API
-  await request.post(
-    `${API_URL}/sessions/${roomCode}/join`,
-    { headers: JSON_HEADERS, data: { userId, userName } }
-  );
+  await request.post(`${API_URL}/sessions/${roomCode}/join`, {
+    headers: JSON_HEADERS,
+    data: { userId, userName },
+  });
 
   // Navigate to the session board
   await page.goto(`/session/${roomCode}`);

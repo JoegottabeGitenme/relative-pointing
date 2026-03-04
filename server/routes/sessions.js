@@ -476,12 +476,9 @@ router.post('/:roomCode/end-turn', async (req, res) => {
       userId !== session.current_turn_user_id &&
       userId !== session.creator_id
     ) {
-      return res
-        .status(403)
-        .json({
-          error:
-            'Only the current turn user or session creator can end the turn',
-        });
+      return res.status(403).json({
+        error: 'Only the current turn user or session creator can end the turn',
+      });
     }
 
     // Get participants ordered by joined_at, filter out skipped

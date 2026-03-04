@@ -45,9 +45,9 @@ test.describe('Turn-Based Features', () => {
 
     // --- Creator's turn ---
     // Creator sees green "It's your turn!" banner
-    await expect(
-      creator.page.getByText("It's your turn!")
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Creator sees "End My Turn" button
     await expect(
@@ -58,9 +58,9 @@ test.describe('Turn-Based Features', () => {
     await expect(creator.page.locator('.hourglass-pulse')).toBeVisible();
 
     // Alice sees yellow banner "It's Creator's turn"
-    await expect(
-      alicePage.page.getByText("It's Creator's turn")
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(alicePage.page.getByText("It's Creator's turn")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Alice should NOT see "End My Turn"
     await expect(
@@ -71,9 +71,9 @@ test.describe('Turn-Based Features', () => {
     await creator.page.getByRole('button', { name: 'End My Turn' }).click();
 
     // Creator now sees yellow banner "It's Alice's turn"
-    await expect(
-      creator.page.getByText("It's Alice's turn")
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.getByText("It's Alice's turn")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Creator should no longer see "End My Turn"
     await expect(
@@ -81,9 +81,9 @@ test.describe('Turn-Based Features', () => {
     ).not.toBeVisible();
 
     // Alice now sees green "It's your turn!" banner
-    await expect(
-      alicePage.page.getByText("It's your turn!")
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(alicePage.page.getByText("It's your turn!")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Alice sees "End My Turn" button
     await expect(
@@ -91,20 +91,18 @@ test.describe('Turn-Based Features', () => {
     ).toBeVisible();
 
     // --- Alice ends turn, wraps back to Creator ---
-    await alicePage.page
-      .getByRole('button', { name: 'End My Turn' })
-      .click();
+    await alicePage.page.getByRole('button', { name: 'End My Turn' }).click();
 
     // Creator sees "It's your turn!" again
-    await expect(
-      creator.page.getByText("It's your turn!")
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     await creator.context.close();
     await alicePage.context.close();
   });
 
-  test('leader can skip another user\'s turn via Skip Turn button', async ({
+  test("leader can skip another user's turn via Skip Turn button", async ({
     browser,
     request,
   }) => {
@@ -124,9 +122,9 @@ test.describe('Turn-Based Features', () => {
     await creator.page.getByRole('button', { name: 'End My Turn' }).click();
 
     // Now it's Alice's turn — Creator (as leader) sees "Skip Turn" button
-    await expect(
-      creator.page.getByText("It's Alice's turn")
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.getByText("It's Alice's turn")).toBeVisible(
+      POLL_TIMEOUT
+    );
     await expect(
       creator.page.getByRole('button', { name: 'Skip Turn' })
     ).toBeVisible();
@@ -135,9 +133,9 @@ test.describe('Turn-Based Features', () => {
     await creator.page.getByRole('button', { name: 'Skip Turn' }).click();
 
     // Turn comes back to Creator
-    await expect(
-      creator.page.getByText("It's your turn!")
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     await creator.context.close();
   });
@@ -199,9 +197,9 @@ test.describe('Turn-Based Features', () => {
     await stackCheckbox.click();
 
     // Wait for stack mode to take effect — dimmed tasks should appear
-    await expect(
-      creator.page.locator('.opacity-40').first()
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.locator('.opacity-40').first()).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Count: there should be exactly 5 dimmed tasks (6 total - 1 top)
     const dimmedCount = await creator.page.locator('.opacity-40').count();
@@ -257,9 +255,9 @@ test.describe('Turn-Based Features', () => {
     );
 
     // Timer hourglass should be visible on the banner
-    await expect(
-      creator.page.locator('.hourglass-pulse')
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.locator('.hourglass-pulse')).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Wait so the timer accumulates some seconds
     await creator.page.waitForTimeout(3000);
@@ -268,18 +266,20 @@ test.describe('Turn-Based Features', () => {
     await creator.page.getByRole('button', { name: 'End My Turn' }).click();
 
     // Wait for turn to advance
-    await expect(
-      creator.page.getByText("It's Alice's turn")
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.getByText("It's Alice's turn")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Timer should still be visible (now for Alice's turn) and reset to low value
-    await expect(
-      creator.page.locator('.hourglass-pulse')
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.locator('.hourglass-pulse')).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // The timer text should contain a low value like 0:0x
     await expect(async () => {
-      const timerParent = creator.page.locator('.hourglass-pulse').locator('..');
+      const timerParent = creator.page
+        .locator('.hourglass-pulse')
+        .locator('..');
       const text = await timerParent.textContent();
       const match = text.match(/(\d+):(\d{2})/);
       expect(match).toBeTruthy();
@@ -304,17 +304,15 @@ test.describe('Turn-Based Features', () => {
     );
 
     // Wait for participants to load
-    await expect(
-      creator.page.getByText('Participants (2):')
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.getByText('Participants (2):')).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Click "whose turn?" to open the turn list
     await creator.page.getByText('whose turn?').click();
 
     // Should show "(current turn)" indicator next to Creator
-    await expect(
-      creator.page.getByText('(current turn)')
-    ).toBeVisible();
+    await expect(creator.page.getByText('(current turn)')).toBeVisible();
 
     // Close the dropdown
     await creator.page.getByText('hide turns').click();
@@ -323,15 +321,13 @@ test.describe('Turn-Based Features', () => {
     await creator.page.getByRole('button', { name: 'End My Turn' }).click();
 
     // Wait for turn to advance
-    await expect(
-      creator.page.getByText("It's Alice's turn")
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.getByText("It's Alice's turn")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Open turn list again — "(current turn)" should now be next to Alice
     await creator.page.getByText('whose turn?').click();
-    await expect(
-      creator.page.getByText('(current turn)')
-    ).toBeVisible();
+    await expect(creator.page.getByText('(current turn)')).toBeVisible();
 
     await creator.context.close();
   });
@@ -351,9 +347,9 @@ test.describe('Turn-Based Features', () => {
     );
 
     // Wait for all 3 participants to show
-    await expect(
-      creator.page.getByText('Participants (3):')
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.getByText('Participants (3):')).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Skip Alice via API
     await updateSessionViaAPI(request, roomCode, {
@@ -364,9 +360,9 @@ test.describe('Turn-Based Features', () => {
     await creator.page.getByRole('button', { name: 'End My Turn' }).click();
 
     // Should skip Alice and go directly to Bob
-    await expect(
-      creator.page.getByText("It's Bob's turn")
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.getByText("It's Bob's turn")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Verify via API that Alice was indeed skipped
     const data = await getSessionViaAPI(request, roomCode);
@@ -397,20 +393,18 @@ test.describe('Turn-Based Features', () => {
     );
 
     // --- Step 1: Verify initial state ---
-    await expect(
-      creator.page.getByText("It's your turn!")
-    ).toBeVisible(POLL_TIMEOUT);
-    await expect(
-      alicePage.page.getByText("It's Creator's turn")
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
+      POLL_TIMEOUT
+    );
+    await expect(alicePage.page.getByText("It's Creator's turn")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Both see sample tasks
-    await expect(
-      creator.page.getByText('PROJ-123')
-    ).toBeVisible(POLL_TIMEOUT);
-    await expect(
-      alicePage.page.getByText('PROJ-123')
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.getByText('PROJ-123')).toBeVisible(POLL_TIMEOUT);
+    await expect(alicePage.page.getByText('PROJ-123')).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // --- Step 2: Creator enables stack mode ---
     const stackCheckbox = creator.page.getByLabel(
@@ -419,14 +413,14 @@ test.describe('Turn-Based Features', () => {
     await stackCheckbox.click();
 
     // Dimmed tasks appear on creator's view
-    await expect(
-      creator.page.locator('.opacity-40').first()
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.locator('.opacity-40').first()).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Alice also sees dimmed tasks after poll
-    await expect(
-      alicePage.page.locator('.opacity-40').first()
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(alicePage.page.locator('.opacity-40').first()).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // --- Step 3: Creator skips the top task ---
     await creator.page.getByRole('button', { name: 'Skip Task' }).click();
@@ -438,9 +432,9 @@ test.describe('Turn-Based Features', () => {
     await creator.page.getByRole('button', { name: 'End My Turn' }).click();
 
     // Alice now has the turn
-    await expect(
-      alicePage.page.getByText("It's your turn!")
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(alicePage.page.getByText("It's your turn!")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // Alice sees "End My Turn"
     await expect(
@@ -453,13 +447,11 @@ test.describe('Turn-Based Features', () => {
     ).toBeVisible();
 
     // --- Step 5: Alice ends turn, back to Creator ---
-    await alicePage.page
-      .getByRole('button', { name: 'End My Turn' })
-      .click();
+    await alicePage.page.getByRole('button', { name: 'End My Turn' }).click();
 
-    await expect(
-      creator.page.getByText("It's your turn!")
-    ).toBeVisible(POLL_TIMEOUT);
+    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     // --- Step 6: Creator disables stack mode ---
     await stackCheckbox.click();
