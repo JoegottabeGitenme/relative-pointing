@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { parseJiraCSV, validateJiraCSV } from '../utils/csvParser';
 import APIService from '../services/api';
 
@@ -6,6 +6,46 @@ function DropZoneOverlay({ roomCode, isCreator, onTasksImported }) {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState(null);
+
+  const processFile = useCallback(
+    async (file) => {
+      setIsUploading(true);
+      setError(null);
+
+      try {
+        // Validate CSV
+        const validation = await validateJiraCSV(file);
+        if (!validation.isValid) {
+          throw new Error(validation.message);
+        }
+
+        // Parse CSV
+        const result = await parseJiraCSV(file);
+
+        // Upload tasks to backend
+        await APIService.uploadTasks(
+          roomCode,
+          result.tasks,
+          result.jiraBaseUrl
+        );
+
+        // Notify parent component
+        if (onTasksImported) {
+          onTasksImported(result.totalCount);
+        }
+
+        // Show success message
+        setError(null);
+      } catch (err) {
+        console.error('CSV upload error:', err);
+        setError(err.message);
+        setTimeout(() => setError(null), 5000);
+      } finally {
+        setIsUploading(false);
+      }
+    },
+    [roomCode, onTasksImported]
+  );
 
   useEffect(() => {
     // Only add drag listeners if user is creator
@@ -53,40 +93,7 @@ function DropZoneOverlay({ roomCode, isCreator, onTasksImported }) {
       document.removeEventListener('dragleave', handleDragLeave);
       document.removeEventListener('drop', handleDrop);
     };
-  }, [isCreator]);
-
-  const processFile = async (file) => {
-    setIsUploading(true);
-    setError(null);
-
-    try {
-      // Validate CSV
-      const validation = await validateJiraCSV(file);
-      if (!validation.isValid) {
-        throw new Error(validation.message);
-      }
-
-      // Parse CSV
-      const result = await parseJiraCSV(file);
-
-      // Upload tasks to backend
-      await APIService.uploadTasks(roomCode, result.tasks, result.jiraBaseUrl);
-
-      // Notify parent component
-      if (onTasksImported) {
-        onTasksImported(result.totalCount);
-      }
-
-      // Show success message
-      setError(null);
-    } catch (err) {
-      console.error('CSV upload error:', err);
-      setError(err.message);
-      setTimeout(() => setError(null), 5000);
-    } finally {
-      setIsUploading(false);
-    }
-  };
+  }, [isCreator, processFile]);
 
   if (!isCreator) return null;
 

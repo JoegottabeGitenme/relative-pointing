@@ -97,9 +97,6 @@ function Column({
       ? 'text-lg font-bold text-blue-900 dark:text-blue-200'
       : 'font-semibold text-gray-700 dark:text-gray-200';
 
-  // Show delete button only if column has exactly 1 task and is not the tasks queue
-  const canDelete = variant !== 'tasks' && tasks.length === 1 && onDelete;
-
   return (
     <>
       <div
