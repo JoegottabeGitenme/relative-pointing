@@ -54,9 +54,6 @@ test.describe('Turn-Based Features', () => {
       creator.page.getByRole('button', { name: 'End My Turn' })
     ).toBeVisible();
 
-    // Creator sees the timer ticking
-    await expect(creator.page.locator('.hourglass-pulse')).toBeVisible();
-
     // Alice sees yellow banner "It's Creator's turn"
     await expect(alicePage.page.getByText("It's Creator's turn")).toBeVisible(
       POLL_TIMEOUT
@@ -183,27 +180,17 @@ test.describe('Turn-Based Features', () => {
       'Creator'
     );
 
-    // Verify stack mode checkbox exists and is unchecked
+    // Verify stack mode checkbox exists and is checked by default
     const stackCheckbox = creator.page.getByLabel(
       'Stack mode (one task at a time)'
     );
     await expect(stackCheckbox).toBeVisible(POLL_TIMEOUT);
-    await expect(stackCheckbox).not.toBeChecked();
+    await expect(stackCheckbox).toBeChecked();
 
-    // No tasks should be dimmed initially
-    await expect(creator.page.locator('.opacity-40')).toHaveCount(0);
-
-    // Enable stack mode
-    await stackCheckbox.click();
-
-    // Wait for stack mode to take effect — dimmed tasks should appear
-    await expect(creator.page.locator('.opacity-40').first()).toBeVisible(
+    // Stack mode is on by default — top task should be highlighted with ring
+    await expect(creator.page.locator('.ring-2').first()).toBeVisible(
       POLL_TIMEOUT
     );
-
-    // Count: there should be exactly 5 dimmed tasks (6 total - 1 top)
-    const dimmedCount = await creator.page.locator('.opacity-40').count();
-    expect(dimmedCount).toBe(5);
 
     // "Skip Task" button should be visible (stack mode + my turn)
     await expect(
@@ -231,8 +218,10 @@ test.describe('Turn-Based Features', () => {
     // Disable stack mode
     await stackCheckbox.click();
 
-    // All tasks should be interactive again (no dimmed)
-    await expect(creator.page.locator('.opacity-40')).toHaveCount(0, {
+    // No highlighted task should remain
+    await expect(
+      creator.page.locator('.ring-2.ring-blue-400\\/60')
+    ).toHaveCount(0, {
       timeout: 10000,
     });
 
@@ -244,53 +233,7 @@ test.describe('Turn-Based Features', () => {
     await creator.context.close();
   });
 
-  test('timer resets when turn advances', async ({ browser, request }) => {
-    const alice = await joinSessionViaAPI(request, roomCode, 'Alice');
-
-    const creator = await createCreatorContext(
-      browser,
-      roomCode,
-      creatorId,
-      'Creator'
-    );
-
-    // Timer hourglass should be visible on the banner
-    await expect(creator.page.locator('.hourglass-pulse')).toBeVisible(
-      POLL_TIMEOUT
-    );
-
-    // Wait so the timer accumulates some seconds
-    await creator.page.waitForTimeout(3000);
-
-    // End turn
-    await creator.page.getByRole('button', { name: 'End My Turn' }).click();
-
-    // Wait for turn to advance
-    await expect(creator.page.getByText("It's Alice's turn")).toBeVisible(
-      POLL_TIMEOUT
-    );
-
-    // Timer should still be visible (now for Alice's turn) and reset to low value
-    await expect(creator.page.locator('.hourglass-pulse')).toBeVisible(
-      POLL_TIMEOUT
-    );
-
-    // The timer text should contain a low value like 0:0x
-    await expect(async () => {
-      const timerParent = creator.page
-        .locator('.hourglass-pulse')
-        .locator('..');
-      const text = await timerParent.textContent();
-      const match = text.match(/(\d+):(\d{2})/);
-      expect(match).toBeTruthy();
-      const totalSeconds = parseInt(match[1]) * 60 + parseInt(match[2]);
-      expect(totalSeconds).toBeLessThan(10);
-    }).toPass(POLL_TIMEOUT);
-
-    await creator.context.close();
-  });
-
-  test('participant list shows current turn indicator and whose turn dropdown', async ({
+  test('turn advances correctly between users', async ({
     browser,
     request,
   }) => {
@@ -303,19 +246,42 @@ test.describe('Turn-Based Features', () => {
       'Creator'
     );
 
-    // Wait for participants to load
-    await expect(creator.page.getByText('Participants (2):')).toBeVisible(
+    // Creator has the turn
+    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
       POLL_TIMEOUT
     );
 
-    // Click "whose turn?" to open the turn list
-    await creator.page.getByText('whose turn?').click();
+    // End turn
+    await creator.page.getByRole('button', { name: 'End My Turn' }).click();
 
-    // Should show "(current turn)" indicator next to Creator
-    await expect(creator.page.getByText('(current turn)')).toBeVisible();
+    // Turn advances to Alice
+    await expect(creator.page.getByText("It's Alice's turn")).toBeVisible(
+      POLL_TIMEOUT
+    );
 
-    // Close the dropdown
-    await creator.page.getByText('hide turns').click();
+    await creator.context.close();
+  });
+
+  test('participant list shows current turn indicator', async ({
+    browser,
+    request,
+  }) => {
+    const alice = await joinSessionViaAPI(request, roomCode, 'Alice');
+
+    const creator = await createCreatorContext(
+      browser,
+      roomCode,
+      creatorId,
+      'Creator'
+    );
+
+    // Wait for participants to load — format is "Participants (active/total)"
+    await expect(creator.page.getByText('Participants (2/2)')).toBeVisible(
+      POLL_TIMEOUT
+    );
+
+    // "Current turn" indicator should be visible next to the active participant
+    await expect(creator.page.getByText('Current turn')).toBeVisible();
 
     // End turn to advance to Alice
     await creator.page.getByRole('button', { name: 'End My Turn' }).click();
@@ -325,9 +291,8 @@ test.describe('Turn-Based Features', () => {
       POLL_TIMEOUT
     );
 
-    // Open turn list again — "(current turn)" should now be next to Alice
-    await creator.page.getByText('whose turn?').click();
-    await expect(creator.page.getByText('(current turn)')).toBeVisible();
+    // "Current turn" should still be visible (now next to Alice)
+    await expect(creator.page.getByText('Current turn')).toBeVisible();
 
     await creator.context.close();
   });
@@ -346,8 +311,8 @@ test.describe('Turn-Based Features', () => {
       'Creator'
     );
 
-    // Wait for all 3 participants to show
-    await expect(creator.page.getByText('Participants (3):')).toBeVisible(
+    // Wait for all 3 participants to show — format is "Participants (active/total)"
+    await expect(creator.page.getByText('Participants (3/3)')).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -406,19 +371,19 @@ test.describe('Turn-Based Features', () => {
       POLL_TIMEOUT
     );
 
-    // --- Step 2: Creator enables stack mode ---
+    // --- Step 2: Stack mode is on by default — verify highlight ---
     const stackCheckbox = creator.page.getByLabel(
       'Stack mode (one task at a time)'
     );
-    await stackCheckbox.click();
+    await expect(stackCheckbox).toBeChecked(POLL_TIMEOUT);
 
-    // Dimmed tasks appear on creator's view
-    await expect(creator.page.locator('.opacity-40').first()).toBeVisible(
+    // Top task should be highlighted on creator's view
+    await expect(creator.page.locator('.ring-2').first()).toBeVisible(
       POLL_TIMEOUT
     );
 
-    // Alice also sees dimmed tasks after poll
-    await expect(alicePage.page.locator('.opacity-40').first()).toBeVisible(
+    // Alice also sees highlighted top task after poll
+    await expect(alicePage.page.locator('.ring-2').first()).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -456,8 +421,10 @@ test.describe('Turn-Based Features', () => {
     // --- Step 6: Creator disables stack mode ---
     await stackCheckbox.click();
 
-    // No more dimmed tasks
-    await expect(creator.page.locator('.opacity-40')).toHaveCount(0, {
+    // No more highlighted tasks
+    await expect(
+      creator.page.locator('.ring-2.ring-blue-400\\/60')
+    ).toHaveCount(0, {
       timeout: 10000,
     });
 

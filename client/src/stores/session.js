@@ -9,9 +9,11 @@ export const useSessionStore = defineStore('session', () => {
   const participants = ref([]);
   const tasks = ref([]);
   const columns = ref([]);
+  const tags = ref([]);
   const loading = ref(true);
   const error = ref(null);
   const roomCode = ref(null);
+  const serverConfig = ref({ offlineThresholdSeconds: 15 }); // default fallback
 
   // Optimistic state
   const optimisticTasks = ref({});
@@ -51,7 +53,7 @@ export const useSessionStore = defineStore('session', () => {
       if (
         backendTask &&
         backendTask.column_id === optimisticTask.column_id &&
-        backendTask.color_tag === optimisticTask.color_tag
+        backendTask.tag_id === optimisticTask.tag_id
       ) {
         delete updated[taskId];
         hasChanges = true;
@@ -84,11 +86,17 @@ export const useSessionStore = defineStore('session', () => {
   async function fetchSession() {
     if (!roomCode.value) return;
     try {
-      const data = await APIService.getSession(roomCode.value);
+      const userStore = useUserStore();
+      const data = await APIService.getSession(
+        roomCode.value,
+        userStore.userId
+      );
       session.value = data.session;
       participants.value = data.participants || [];
       tasks.value = data.tasks || [];
       columns.value = data.columns || [];
+      tags.value = data.tags || [];
+      if (data.config) serverConfig.value = data.config;
       error.value = null;
     } catch (err) {
       console.error('Session fetch error:', err);
@@ -118,6 +126,7 @@ export const useSessionStore = defineStore('session', () => {
     participants.value = [];
     tasks.value = [];
     columns.value = [];
+    tags.value = [];
     loading.value = true;
     error.value = null;
     optimisticTasks.value = {};
@@ -154,6 +163,14 @@ export const useSessionStore = defineStore('session', () => {
     return currentTurnUserId.value === userStore.userId;
   });
 
+  const isCurrentUserDisabled = computed(() => {
+    const userStore = useUserStore();
+    const skipped = session.value?.skipped_participants || [];
+    return skipped.includes(userStore.userId);
+  });
+
+  const isEnded = computed(() => !!session.value?.ended_at);
+
   // Turn-based actions
   async function endTurn() {
     if (!roomCode.value) return;
@@ -183,9 +200,38 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
+  async function endSession() {
+    if (!roomCode.value) return;
+    const userStore = useUserStore();
+    try {
+      await APIService.endSession(roomCode.value, userStore.userId);
+      await fetchSession();
+    } catch (err) {
+      console.error('Error ending session:', err);
+      throw err;
+    }
+  }
+
+  async function transferOwnership(newOwnerId) {
+    if (!roomCode.value) return;
+    const userStore = useUserStore();
+    try {
+      await APIService.transferOwnership(
+        roomCode.value,
+        userStore.userId,
+        newOwnerId
+      );
+      // Immediately fetch to reflect the change
+      await fetchSession();
+    } catch (err) {
+      console.error('Error transferring ownership:', err);
+      throw err;
+    }
+  }
+
   // Actions
   async function moveTaskToColumn(taskId, targetColumnId, userId) {
-    if (!isMyTurn.value) return;
+    if (!isMyTurn.value || isCurrentUserDisabled.value) return;
 
     const taskIdStr = String(taskId);
     const draggedTask = tasks.value.find((t) => String(t.id) === taskIdStr);
@@ -366,7 +412,7 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  function updateTaskColor(taskId, colorTag) {
+  function updateTaskTag(taskId, tagId) {
     const taskIdStr = String(taskId);
     const existingOptimistic = optimisticTasks.value[taskIdStr];
     const serverTask = tasks.value.find((t) => String(t.id) === taskIdStr);
@@ -375,17 +421,38 @@ export const useSessionStore = defineStore('session', () => {
 
     optimisticTasks.value = {
       ...optimisticTasks.value,
-      [taskIdStr]: { ...task, color_tag: colorTag },
+      [taskIdStr]: { ...task, tag_id: tagId },
     };
 
-    APIService.updateTaskColor(roomCode.value, taskId, colorTag).catch(
-      (err) => {
-        console.error('Error updating task color:', err);
-        const updated = { ...optimisticTasks.value };
-        delete updated[taskIdStr];
-        optimisticTasks.value = updated;
-      }
-    );
+    APIService.updateTaskTag(roomCode.value, taskId, tagId).catch((err) => {
+      console.error('Error updating task tag:', err);
+      const updated = { ...optimisticTasks.value };
+      delete updated[taskIdStr];
+      optimisticTasks.value = updated;
+    });
+  }
+
+  async function createTag(name, color) {
+    if (!roomCode.value) return;
+    try {
+      const newTag = await APIService.createTag(roomCode.value, name, color);
+      tags.value = [...tags.value, newTag];
+      return newTag;
+    } catch (err) {
+      console.error('Error creating tag:', err);
+      throw err;
+    }
+  }
+
+  async function deleteTag(tagId) {
+    if (!roomCode.value) return;
+    try {
+      await APIService.deleteTag(roomCode.value, tagId);
+      tags.value = tags.value.filter((t) => t.id !== tagId);
+    } catch (err) {
+      console.error('Error deleting tag:', err);
+      throw err;
+    }
   }
 
   return {
@@ -394,9 +461,11 @@ export const useSessionStore = defineStore('session', () => {
     participants,
     tasks,
     columns,
+    tags,
     loading,
     error,
     roomCode,
+    serverConfig,
     // Computed
     displayColumns,
     displayTasks,
@@ -406,6 +475,8 @@ export const useSessionStore = defineStore('session', () => {
     currentTurnParticipant,
     topUnsortedTask,
     isMyTurn,
+    isCurrentUserDisabled,
+    isEnded,
     // Actions
     startPolling,
     stopPolling,
@@ -413,9 +484,13 @@ export const useSessionStore = defineStore('session', () => {
     moveTaskToColumn,
     deleteTask,
     deleteColumn,
-    updateTaskColor,
+    updateTaskTag,
+    createTag,
+    deleteTag,
     endTurn,
+    endSession,
     toggleStackMode,
     skipTopTask,
+    transferOwnership,
   };
 });
