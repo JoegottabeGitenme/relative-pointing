@@ -537,8 +537,23 @@ onUnmounted(() => {
       </header>
 
       <!-- All participants disabled banner -->
+      <!-- Pre-start: prompt to enable participants -->
       <div
         v-if="
+          !sessionStore.isStarted &&
+          sessionStore.participants.length > 0 &&
+          !sessionStore.loading
+        "
+        class="px-4 py-3 flex items-center justify-between border-b bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800"
+      >
+        <span class="font-semibold text-amber-800 dark:text-amber-200">
+          Please enable a participant to begin.
+        </span>
+      </div>
+      <!-- Post-start: all participants disabled -->
+      <div
+        v-if="
+          sessionStore.isStarted &&
           !sessionStore.currentTurnParticipant &&
           sessionStore.participants.length > 0 &&
           !sessionStore.loading
@@ -546,7 +561,7 @@ onUnmounted(() => {
         class="px-4 py-3 flex items-center justify-between border-b bg-red-100 dark:bg-red-900/40 border-red-200 dark:border-red-800"
       >
         <span class="font-semibold text-red-800 dark:text-red-200">
-          Please enable a participant to begin.
+          All participants are disabled. Enable a participant to continue.
         </span>
       </div>
 

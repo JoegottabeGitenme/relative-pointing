@@ -781,10 +781,29 @@ router.post('/:roomCode/start', async (req, res) => {
       return res.status(400).json({ error: 'Session already started' });
     }
 
-    // Set started_at and initialize the first turn to the creator
+    // Find the first non-skipped participant to assign the turn to
+    const participants = await dbPromise.all(
+      `SELECT * FROM participants WHERE session_id = ? ORDER BY joined_at ASC`,
+      [session.id]
+    );
+    const skippedList = session.skipped_participants
+      ? JSON.parse(session.skipped_participants)
+      : [];
+    const activeParticipants = participants.filter(
+      (p) => !skippedList.includes(p.user_id)
+    );
+
+    if (activeParticipants.length === 0) {
+      return res
+        .status(400)
+        .json({ error: 'No active participants to start with' });
+    }
+
+    const firstActiveUserId = activeParticipants[0].user_id;
+
     await dbPromise.run(
       `UPDATE sessions SET started_at = CURRENT_TIMESTAMP, current_turn_user_id = ?, turn_started_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      [session.creator_id, session.id]
+      [firstActiveUserId, session.id]
     );
 
     res.json({ success: true });
