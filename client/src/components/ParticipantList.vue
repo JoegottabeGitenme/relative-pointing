@@ -2,6 +2,7 @@
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import APIService from '../services/api';
 import SandTimer from './SandTimer.vue';
+import Identicon from './Identicon.vue';
 import { useSessionStore } from '../stores/session';
 
 const sessionStore = useSessionStore();
@@ -25,22 +26,7 @@ const props = defineProps({
 
 const emit = defineEmits(['toggleCollapse']);
 
-const COLORS = [
-  '#FF6B6B',
-  '#4ECDC4',
-  '#45B7D1',
-  '#FFA07A',
-  '#98D8C8',
-  '#F7DC6F',
-  '#BB8FCE',
-  '#85C1E2',
-];
-
 const confirmTransferId = ref(null);
-
-function getColorForParticipant(index) {
-  return COLORS[index % COLORS.length];
-}
 
 const disabledParticipants = computed(() => new Set(props.skippedParticipants));
 
@@ -208,11 +194,10 @@ function statusFor(p) {
               >{{ String(index + 1).padStart(2, '0') }}</span
             >
 
-            <!-- Square avatar -->
+            <!-- Identicon avatar -->
             <div
-              class="flex h-7 w-7 flex-shrink-0 items-center justify-center font-mono text-[12px] font-bold text-white"
+              class="h-7 w-7 flex-shrink-0 overflow-hidden"
               :style="{
-                backgroundColor: getColorForParticipant(index),
                 borderRadius: '2px',
                 outline:
                   participant.user_id === currentTurnUserId
@@ -225,7 +210,10 @@ function statusFor(p) {
               }"
               :title="collapsed ? participant.user_name : undefined"
             >
-              {{ participant.user_name?.[0]?.toUpperCase() || '?' }}
+              <Identicon
+                :seed="participant.user_id"
+                class="block h-full w-full"
+              />
             </div>
 
             <template v-if="!collapsed">

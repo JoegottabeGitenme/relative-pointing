@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useThemeStore } from '../stores/theme';
 import APIService from '../services/api';
 import Version from './Version.vue';
+import Identicon from './Identicon.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -223,17 +224,6 @@ function exportCSV() {
   a.click();
   URL.revokeObjectURL(url);
 }
-
-const PARTICIPANT_COLORS = [
-  '#FF6B6B',
-  '#4ECDC4',
-  '#45B7D1',
-  '#FFA07A',
-  '#98D8C8',
-  '#F7DC6F',
-  '#BB8FCE',
-  '#85C1E2',
-];
 
 onMounted(fetchReport);
 </script>
@@ -514,16 +504,14 @@ onMounted(fetchReport);
                   >{{ String(i + 1).padStart(2, '0') }}</span
                 >
                 <div
-                  class="flex h-5.5 w-5.5 items-center justify-center font-mono text-[10px] font-bold text-white"
+                  class="flex-shrink-0 overflow-hidden"
                   :style="{
                     width: '22px',
                     height: '22px',
-                    backgroundColor:
-                      PARTICIPANT_COLORS[i % PARTICIPANT_COLORS.length],
                     borderRadius: '2px',
                   }"
                 >
-                  {{ p.user_name?.[0]?.toUpperCase() || '?' }}
+                  <Identicon :seed="p.user_id" class="block h-full w-full" />
                 </div>
                 <span
                   class="flex-1 text-[13px] font-medium tracking-[-0.005em]"

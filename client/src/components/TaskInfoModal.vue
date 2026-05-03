@@ -4,6 +4,7 @@ import { useSessionStore } from '../stores/session';
 import { useUserStore } from '../stores/user';
 import APIService from '../services/api';
 import { getTagForTask } from './taskTags';
+import Identicon from './Identicon.vue';
 
 const props = defineProps({
   task: { type: Object, required: true },
@@ -252,13 +253,13 @@ function handleMoveTo(columnId) {
                   class="flex items-start gap-2.5"
                 >
                   <div
-                    class="flex h-6 w-6 flex-shrink-0 items-center justify-center font-mono text-[10px] font-bold text-white"
-                    :style="{
-                      background: 'var(--sm-ink)',
-                      borderRadius: '2px',
-                    }"
+                    class="h-6 w-6 flex-shrink-0 overflow-hidden"
+                    :style="{ borderRadius: '2px' }"
                   >
-                    {{ c.user_name?.[0]?.toUpperCase() || '?' }}
+                    <Identicon
+                      :seed="c.user_id || c.user_name"
+                      class="block h-full w-full"
+                    />
                   </div>
                   <div class="min-w-0 flex-1">
                     <div class="mb-0.5 flex items-baseline gap-2">

@@ -5,13 +5,17 @@ import { useSessionStore } from '../stores/session';
 import { useUserStore } from '../stores/user';
 import { useThemeStore } from '../stores/theme';
 import APIService from '../services/api';
+import { getIdenticonColor } from '../utils/identicon';
+import {
+  getCachedJiraBaseUrl,
+  setCachedJiraBaseUrl,
+} from '../utils/jiraUrlBuilder';
 import Column from './Column.vue';
 import CreateColumnDropZone from './CreateColumnDropZone.vue';
 import ParticipantList from './ParticipantList.vue';
 import CreateTaskModal from './CreateTaskModal.vue';
 import DropZoneOverlay from './DropZoneOverlay.vue';
 import TaskActionModal from './TaskActionModal.vue';
-import TurnTimer from './TurnTimer.vue';
 import Version from './Version.vue';
 import Snowflakes from './Snowflakes.vue';
 
@@ -74,21 +78,8 @@ const topTaskId = computed(() =>
   sessionStore.topUnsortedTask ? String(sessionStore.topUnsortedTask.id) : null
 );
 
-// Participant colors (same as ParticipantList)
-const COLORS = [
-  '#FF6B6B',
-  '#4ECDC4',
-  '#45B7D1',
-  '#FFA07A',
-  '#98D8C8',
-  '#F7DC6F',
-  '#BB8FCE',
-  '#85C1E2',
-];
-
 function getColorForUserId(userId) {
-  const idx = sessionStore.participants.findIndex((p) => p.user_id === userId);
-  return idx >= 0 ? COLORS[idx % COLORS.length] : '#4ECDC4';
+  return getIdenticonColor(userId);
 }
 
 const currentTurnColor = computed(() => {
@@ -266,6 +257,7 @@ async function handleSaveJiraUrl() {
   try {
     await APIService.updateSessionJiraUrl(roomCode.value, jiraUrlInput.value);
     jiraBaseUrl.value = jiraUrlInput.value;
+    setCachedJiraBaseUrl(jiraUrlInput.value);
     showJiraUrlInput.value = false;
   } catch (err) {
     console.error('Error saving Jira URL:', err);
@@ -496,7 +488,8 @@ onUnmounted(() => {
                   <span
                     v-else
                     @click="
-                      jiraUrlInput = jiraBaseUrl;
+                      jiraUrlInput =
+                        jiraBaseUrl || getCachedJiraBaseUrl() || '';
                       showJiraUrlInput = true;
                     "
                     class="cursor-pointer font-mono text-[10.5px] hover:underline"
@@ -672,13 +665,6 @@ onUnmounted(() => {
           </span>
         </div>
         <div class="flex items-center gap-3.5 flex-shrink-0">
-          <TurnTimer
-            v-if="sessionStore.turnStartedAt"
-            :turn-started-at="sessionStore.turnStartedAt"
-            :style="{
-              color: themeStore.isDark ? '#0a0a0a' : 'var(--sm-surface)',
-            }"
-          />
           <button
             v-if="sessionStore.isMyTurn"
             @click="sessionStore.endTurn()"

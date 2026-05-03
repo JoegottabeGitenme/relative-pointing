@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import draggable from 'vuedraggable';
 import TaskItem from './TaskItem.vue';
 import TaskInfoModal from './TaskInfoModal.vue';
+import { getFibonacciLabel } from '../utils/fibonacci';
 
 const props = defineProps({
   columnId: { type: String, required: true },
@@ -27,6 +28,19 @@ const localTasks = computed({
   set: () => {},
 });
 
+// Show the Fibonacci label as the column heading. As columns are added,
+// each one's heading slides up the sequence (1, 2, 3, 5, 8, 13, ...).
+// If the user has explicitly customised the column name (anything other
+// than the default "New Column"), respect their name instead.
+const displayTitle = computed(() => {
+  if (props.variant === 'tasks') return props.title;
+  const trimmed = (props.title || '').trim();
+  if (!trimmed || trimmed.toLowerCase() === 'new column') {
+    return getFibonacciLabel(props.columnIndex);
+  }
+  return trimmed;
+});
+
 function onDragChange(evt) {
   if (evt.added) {
     emit('taskMoved', {
@@ -40,43 +54,23 @@ function onDragChange(evt) {
 <template>
   <div>
     <div class="flex w-[220px] flex-shrink-0 flex-col">
-      <!-- Header -->
+      <!-- Header (board columns only — the queue panel renders its own header) -->
       <div
+        v-if="variant !== 'tasks'"
         class="mb-2.5 flex items-center justify-between pb-2"
         :style="{ borderBottom: '1px solid var(--sm-border)' }"
       >
-        <div class="flex items-baseline gap-2 min-w-0">
-          <span
-            v-if="variant !== 'tasks'"
-            class="font-mono text-[10px] font-semibold flex-shrink-0"
-            :style="{ color: 'var(--sm-subtle)' }"
-            >{{ String(columnIndex + 1).padStart(2, '0') }}</span
-          >
-          <span
-            class="text-[13px] font-bold tracking-[-0.01em] truncate"
-            :style="{ color: 'var(--sm-ink)' }"
-            >{{ title }}</span
-          >
-        </div>
-        <div class="flex items-center gap-1.5 flex-shrink-0">
-          <span
-            v-if="
-              variant !== 'tasks' && pointValue !== null && pointValue !== ''
-            "
-            class="font-mono text-[11px] font-bold px-1.5 py-px"
-            :style="{
-              background: 'var(--sm-accent)',
-              color: '#0a0a0a',
-              borderRadius: '2px',
-            }"
-            >{{ pointValue }}pt</span
-          >
-          <span
-            class="font-mono text-[10px]"
-            :style="{ color: 'var(--sm-muted)' }"
-            >×{{ localTasks.length }}</span
-          >
-        </div>
+        <span
+          class="font-mono text-[14px] font-bold tracking-[-0.01em] truncate"
+          :style="{ color: 'var(--sm-ink)' }"
+          >{{ displayTitle }}</span
+        >
+        <span
+          class="font-mono text-[11px] flex-shrink-0"
+          :style="{ color: 'var(--sm-muted)' }"
+          >{{ localTasks.length }}
+          {{ localTasks.length === 1 ? 'ticket' : 'tickets' }}</span
+        >
       </div>
 
       <draggable

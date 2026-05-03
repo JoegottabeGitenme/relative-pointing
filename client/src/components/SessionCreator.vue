@@ -12,7 +12,7 @@ const route = useRoute();
 const userStore = useUserStore();
 const themeStore = useThemeStore();
 
-const userName = ref('');
+const userName = ref(userStore.userName || '');
 const roomCode = ref('');
 const mode = ref('create');
 const loading = ref(false);
