@@ -29,7 +29,7 @@ test.describe('Turn-Based Features', () => {
     await startSessionViaAPI(request, roomCode, creatorId);
   });
 
-  test('full turn rotation: creator clicks End My Turn, banner updates for each user', async ({
+  test('full turn rotation: creator clicks End turn, banner updates for each user', async ({
     browser,
     request,
   }) => {
@@ -51,54 +51,53 @@ test.describe('Turn-Based Features', () => {
     );
 
     // --- Creator's turn ---
-    // Creator sees green "It's your turn!" banner
-    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
+    await expect(creator.page.getByText('◆ Your turn')).toBeVisible(
       POLL_TIMEOUT
     );
 
-    // Creator sees "End My Turn" button
+    // Creator sees "End turn" button
     await expect(
-      creator.page.getByRole('button', { name: 'End My Turn' })
+      creator.page.getByRole('button', { name: /End turn/i })
     ).toBeVisible();
 
-    // Alice sees yellow banner "It's Creator's turn"
-    await expect(alicePage.page.getByText("It's Creator's turn")).toBeVisible(
+    // Alice sees "Creator is pointing"
+    await expect(alicePage.page.getByText(/Creator is pointing/)).toBeVisible(
       POLL_TIMEOUT
     );
 
-    // Alice should NOT see "End My Turn"
+    // Alice should NOT see "End turn"
     await expect(
-      alicePage.page.getByRole('button', { name: 'End My Turn' })
+      alicePage.page.getByRole('button', { name: /End turn/i })
     ).not.toBeVisible();
 
     // --- Creator ends turn ---
-    await creator.page.getByRole('button', { name: 'End My Turn' }).click();
+    await creator.page.getByRole('button', { name: /End turn/i }).click();
 
-    // Creator now sees yellow banner "It's Alice's turn"
-    await expect(creator.page.getByText("It's Alice's turn")).toBeVisible(
+    // Creator now sees "Alice is pointing"
+    await expect(creator.page.getByText(/Alice is pointing/)).toBeVisible(
       POLL_TIMEOUT
     );
 
-    // Creator should no longer see "End My Turn"
+    // Creator should no longer see "End turn"
     await expect(
-      creator.page.getByRole('button', { name: 'End My Turn' })
+      creator.page.getByRole('button', { name: /End turn/i })
     ).not.toBeVisible();
 
-    // Alice now sees green "It's your turn!" banner
-    await expect(alicePage.page.getByText("It's your turn!")).toBeVisible(
+    // Alice now sees "Your turn" banner
+    await expect(alicePage.page.getByText('◆ Your turn')).toBeVisible(
       POLL_TIMEOUT
     );
 
-    // Alice sees "End My Turn" button
+    // Alice sees "End turn" button
     await expect(
-      alicePage.page.getByRole('button', { name: 'End My Turn' })
+      alicePage.page.getByRole('button', { name: /End turn/i })
     ).toBeVisible();
 
     // --- Alice ends turn, wraps back to Creator ---
-    await alicePage.page.getByRole('button', { name: 'End My Turn' }).click();
+    await alicePage.page.getByRole('button', { name: /End turn/i }).click();
 
-    // Creator sees "It's your turn!" again
-    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
+    // Creator sees "Your turn" again
+    await expect(creator.page.getByText('◆ Your turn')).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -106,7 +105,7 @@ test.describe('Turn-Based Features', () => {
     await alicePage.context.close();
   });
 
-  test("leader can skip another user's turn via Skip Turn button", async ({
+  test("leader can skip another user's turn via Skip turn button", async ({
     browser,
     request,
   }) => {
@@ -121,23 +120,23 @@ test.describe('Turn-Based Features', () => {
 
     // Creator ends their own turn to give it to Alice
     await expect(
-      creator.page.getByRole('button', { name: 'End My Turn' })
+      creator.page.getByRole('button', { name: /End turn/i })
     ).toBeVisible(POLL_TIMEOUT);
-    await creator.page.getByRole('button', { name: 'End My Turn' }).click();
+    await creator.page.getByRole('button', { name: /End turn/i }).click();
 
-    // Now it's Alice's turn — Creator (as leader) sees "Skip Turn" button
-    await expect(creator.page.getByText("It's Alice's turn")).toBeVisible(
+    // Now it's Alice's turn — Creator (as leader) sees "Skip turn" button
+    await expect(creator.page.getByText(/Alice is pointing/)).toBeVisible(
       POLL_TIMEOUT
     );
     await expect(
-      creator.page.getByRole('button', { name: 'Skip Turn' })
+      creator.page.getByRole('button', { name: 'Skip turn' })
     ).toBeVisible();
 
-    // Creator clicks "Skip Turn"
-    await creator.page.getByRole('button', { name: 'Skip Turn' }).click();
+    // Creator clicks "Skip turn"
+    await creator.page.getByRole('button', { name: 'Skip turn' }).click();
 
     // Turn comes back to Creator
-    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
+    await expect(creator.page.getByText('◆ Your turn')).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -176,7 +175,7 @@ test.describe('Turn-Based Features', () => {
     expect(creatorResponse.status()).toBe(200);
   });
 
-  test('stack mode: toggle on, verify dimming, skip task, toggle off', async ({
+  test('stack mode: toggle on, verify highlight, skip task, toggle off', async ({
     browser,
     request,
   }) => {
@@ -188,35 +187,33 @@ test.describe('Turn-Based Features', () => {
     );
 
     // Verify stack mode checkbox exists and is checked by default
-    const stackCheckbox = creator.page.getByLabel(
-      'Stack mode (one task at a time)'
-    );
+    const stackCheckbox = creator.page.getByLabel('Stack mode');
     await expect(stackCheckbox).toBeVisible(POLL_TIMEOUT);
     await expect(stackCheckbox).toBeChecked();
 
-    // Stack mode is on by default — top task should be highlighted with ring
-    await expect(creator.page.locator('.ring-2').first()).toBeVisible(
-      POLL_TIMEOUT
-    );
-
-    // "Skip Task" button should be visible (stack mode + my turn)
+    // Stack mode is on by default — top task should be highlighted
     await expect(
-      creator.page.getByRole('button', { name: 'Skip Task' })
+      creator.page.locator('[data-highlighted="true"]').first()
+    ).toBeVisible(POLL_TIMEOUT);
+
+    // "Skip task" button should be visible (stack mode + my turn)
+    await expect(
+      creator.page.getByRole('button', { name: 'Skip task' })
     ).toBeVisible();
 
     // Get the text of the current top task
     const firstTaskText = await creator.page
-      .locator('.cursor-grab .text-sm.font-medium')
+      .locator('[data-highlighted="true"]')
       .first()
       .textContent();
 
-    // Click Skip Task
-    await creator.page.getByRole('button', { name: 'Skip Task' }).click();
+    // Click Skip task
+    await creator.page.getByRole('button', { name: 'Skip task' }).click();
 
     // Wait for the top task to change (poll cycle)
     await expect(async () => {
       const newTopText = await creator.page
-        .locator('.cursor-grab .text-sm.font-medium')
+        .locator('[data-highlighted="true"]')
         .first()
         .textContent();
       expect(newTopText).not.toBe(firstTaskText);
@@ -226,15 +223,16 @@ test.describe('Turn-Based Features', () => {
     await stackCheckbox.click();
 
     // No highlighted task should remain
-    await expect(
-      creator.page.locator('.ring-2.ring-blue-400\\/60')
-    ).toHaveCount(0, {
-      timeout: 10000,
-    });
+    await expect(creator.page.locator('[data-highlighted="true"]')).toHaveCount(
+      0,
+      {
+        timeout: 10000,
+      }
+    );
 
-    // Skip Task button should be gone
+    // Skip task button should be gone
     await expect(
-      creator.page.getByRole('button', { name: 'Skip Task' })
+      creator.page.getByRole('button', { name: 'Skip task' })
     ).not.toBeVisible();
 
     await creator.context.close();
@@ -254,15 +252,15 @@ test.describe('Turn-Based Features', () => {
     );
 
     // Creator has the turn
-    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
+    await expect(creator.page.getByText('◆ Your turn')).toBeVisible(
       POLL_TIMEOUT
     );
 
     // End turn
-    await creator.page.getByRole('button', { name: 'End My Turn' }).click();
+    await creator.page.getByRole('button', { name: /End turn/i }).click();
 
     // Turn advances to Alice
-    await expect(creator.page.getByText("It's Alice's turn")).toBeVisible(
+    await expect(creator.page.getByText(/Alice is pointing/)).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -283,23 +281,23 @@ test.describe('Turn-Based Features', () => {
     );
 
     // Wait for participants to load — Creator + Alice, both active
-    await expect(creator.page.getByText('Participants (2/2)')).toBeVisible(
+    await expect(creator.page.getByText('[2/2]').first()).toBeVisible(
       POLL_TIMEOUT
     );
 
-    // "Current turn" indicator should be visible next to the active participant
-    await expect(creator.page.getByText('Current turn')).toBeVisible();
+    // "◆ active" indicator should be visible next to the active participant
+    await expect(creator.page.getByText('◆ active').first()).toBeVisible();
 
     // End turn to advance to Alice
-    await creator.page.getByRole('button', { name: 'End My Turn' }).click();
+    await creator.page.getByRole('button', { name: /End turn/i }).click();
 
     // Wait for turn to advance
-    await expect(creator.page.getByText("It's Alice's turn")).toBeVisible(
+    await expect(creator.page.getByText(/Alice is pointing/)).toBeVisible(
       POLL_TIMEOUT
     );
 
-    // "Current turn" should still be visible (now next to Alice)
-    await expect(creator.page.getByText('Current turn')).toBeVisible();
+    // "◆ active" should still be visible (now next to Alice)
+    await expect(creator.page.getByText('◆ active').first()).toBeVisible();
 
     await creator.context.close();
   });
@@ -319,7 +317,7 @@ test.describe('Turn-Based Features', () => {
     );
 
     // Wait for all 3 participants to show — all active
-    await expect(creator.page.getByText('Participants (3/3)')).toBeVisible(
+    await expect(creator.page.getByText('[3/3]').first()).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -329,10 +327,10 @@ test.describe('Turn-Based Features', () => {
     });
 
     // End Creator's turn
-    await creator.page.getByRole('button', { name: 'End My Turn' }).click();
+    await creator.page.getByRole('button', { name: /End turn/i }).click();
 
     // Should skip Alice and go directly to Bob
-    await expect(creator.page.getByText("It's Bob's turn")).toBeVisible(
+    await expect(creator.page.getByText(/Bob is pointing/)).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -365,10 +363,10 @@ test.describe('Turn-Based Features', () => {
     );
 
     // --- Step 1: Verify initial state ---
-    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
+    await expect(creator.page.getByText('◆ Your turn')).toBeVisible(
       POLL_TIMEOUT
     );
-    await expect(alicePage.page.getByText("It's Creator's turn")).toBeVisible(
+    await expect(alicePage.page.getByText(/Creator is pointing/)).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -379,49 +377,47 @@ test.describe('Turn-Based Features', () => {
     );
 
     // --- Step 2: Stack mode is on by default — verify highlight ---
-    const stackCheckbox = creator.page.getByLabel(
-      'Stack mode (one task at a time)'
-    );
+    const stackCheckbox = creator.page.getByLabel('Stack mode');
     await expect(stackCheckbox).toBeChecked(POLL_TIMEOUT);
 
     // Top task should be highlighted on creator's view
-    await expect(creator.page.locator('.ring-2').first()).toBeVisible(
-      POLL_TIMEOUT
-    );
+    await expect(
+      creator.page.locator('[data-highlighted="true"]').first()
+    ).toBeVisible(POLL_TIMEOUT);
 
     // Alice also sees highlighted top task after poll
-    await expect(alicePage.page.locator('.ring-2').first()).toBeVisible(
-      POLL_TIMEOUT
-    );
+    await expect(
+      alicePage.page.locator('[data-highlighted="true"]').first()
+    ).toBeVisible(POLL_TIMEOUT);
 
     // --- Step 3: Creator skips the top task ---
-    await creator.page.getByRole('button', { name: 'Skip Task' }).click();
+    await creator.page.getByRole('button', { name: 'Skip task' }).click();
 
     // Wait for task order to update via poll
     await creator.page.waitForTimeout(2500);
 
     // --- Step 4: Creator ends turn ---
-    await creator.page.getByRole('button', { name: 'End My Turn' }).click();
+    await creator.page.getByRole('button', { name: /End turn/i }).click();
 
     // Alice now has the turn
-    await expect(alicePage.page.getByText("It's your turn!")).toBeVisible(
+    await expect(alicePage.page.getByText('◆ Your turn')).toBeVisible(
       POLL_TIMEOUT
     );
 
-    // Alice sees "End My Turn"
+    // Alice sees "End turn"
     await expect(
-      alicePage.page.getByRole('button', { name: 'End My Turn' })
+      alicePage.page.getByRole('button', { name: /End turn/i })
     ).toBeVisible();
 
-    // Alice also sees "Skip Task" (stack mode is still on)
+    // Alice also sees "Skip task" (stack mode is still on)
     await expect(
-      alicePage.page.getByRole('button', { name: 'Skip Task' })
+      alicePage.page.getByRole('button', { name: 'Skip task' })
     ).toBeVisible();
 
     // --- Step 5: Alice ends turn, back to Creator ---
-    await alicePage.page.getByRole('button', { name: 'End My Turn' }).click();
+    await alicePage.page.getByRole('button', { name: /End turn/i }).click();
 
-    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
+    await expect(creator.page.getByText('◆ Your turn')).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -429,11 +425,12 @@ test.describe('Turn-Based Features', () => {
     await stackCheckbox.click();
 
     // No more highlighted tasks
-    await expect(
-      creator.page.locator('.ring-2.ring-blue-400\\/60')
-    ).toHaveCount(0, {
-      timeout: 10000,
-    });
+    await expect(creator.page.locator('[data-highlighted="true"]')).toHaveCount(
+      0,
+      {
+        timeout: 10000,
+      }
+    );
 
     await creator.context.close();
     await alicePage.context.close();

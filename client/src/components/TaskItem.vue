@@ -4,45 +4,39 @@ import { buildJiraUrl, detectJiraBaseUrl } from '../utils/jiraUrlBuilder';
 import { getTagColorClasses, getTagForTask } from './taskTags';
 
 const props = defineProps({
-  task: {
-    type: Object,
-    required: true,
-  },
-  jiraBaseUrl: {
-    type: String,
-    default: null,
-  },
-  tags: {
-    type: Array,
-    default: () => [],
-  },
-  showInfo: {
-    type: Boolean,
-    default: false,
-  },
-  highlighted: {
-    type: Boolean,
-    default: false,
-  },
-  dragDisabled: {
-    type: Boolean,
-    default: false,
-  },
+  task: { type: Object, required: true },
+  jiraBaseUrl: { type: String, default: null },
+  tags: { type: Array, default: () => [] },
+  showInfo: { type: Boolean, default: false },
+  highlighted: { type: Boolean, default: false },
+  dragDisabled: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['openActionModal', 'showInfo']);
 
 const taskTag = computed(() => getTagForTask(props.task, props.tags));
-const tagColors = computed(() =>
-  taskTag.value ? getTagColorClasses(taskTag.value.color) : null
-);
+const tagColorVar = computed(() => {
+  const tag = taskTag.value;
+  if (!tag) return null;
+  const map = {
+    yellow: 'var(--sm-tag-yellow)',
+    green: 'var(--sm-tag-green)',
+    red: 'var(--sm-tag-red)',
+    blue: 'var(--sm-tag-blue)',
+    purple: 'var(--sm-tag-purple)',
+    orange: 'var(--sm-tag-orange)',
+    pink: 'var(--sm-tag-pink)',
+    cyan: 'var(--sm-tag-cyan)',
+  };
+  return map[tag.color] || 'var(--sm-tag-blue)';
+});
 
 const displayId = computed(() => props.task.display_id || props.task.id);
 
 const truncatedTagName = computed(() => {
   if (!taskTag.value) return '';
   const name = taskTag.value.name;
-  return name.length > 10 ? name.slice(0, 9) + '…' : name;
+  return name.length > 14 ? name.slice(0, 13) + '…' : name;
 });
 
 const jiraUrl = computed(() => {
@@ -61,45 +55,44 @@ function openJira(e) {
 
 <template>
   <div
+    class="group relative px-3 py-2.5 transition-all"
     :class="[
-      'p-3 rounded-lg transition-all group relative',
-      'bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:shadow-sm dark:glass-card dark:warm-glow-border',
       dragDisabled
         ? 'cursor-default no-drag'
         : 'cursor-grab active:cursor-grabbing',
-      !dragDisabled && 'hover:shadow-md dark:hover:shadow-card-hover',
-      highlighted
-        ? 'card-glow-golden'
-        : taskTag && tagColors.glowRgb
-          ? 'card-glow'
-          : '',
     ]"
-    :style="
-      !highlighted && taskTag && tagColors.glowRgb
-        ? { '--glow-color': tagColors.glowRgb }
-        : {}
-    "
+    :data-highlighted="highlighted ? 'true' : undefined"
+    :style="{
+      background: 'var(--sm-card)',
+      border: highlighted
+        ? '1.5px solid var(--sm-accent)'
+        : '1px solid var(--sm-border)',
+      borderRadius: '2px',
+      boxShadow: highlighted ? '4px 4px 0 var(--sm-accent)' : 'none',
+      opacity: dragDisabled && !highlighted ? 0.4 : 1,
+    }"
   >
-    <!-- Corner tab -->
+    <!-- Tag color stripe -->
     <div
-      v-if="taskTag && tagColors.cornerColor"
-      class="absolute top-0 right-0 w-5 h-5 rounded-bl-lg rounded-tr-lg"
-      :style="{ backgroundColor: tagColors.cornerColor }"
+      v-if="taskTag"
+      class="absolute left-0 top-0 bottom-0 w-[3px]"
+      :style="{ background: tagColorVar }"
     ></div>
-    <!-- Icons (top-right, hover-visible) -->
+
+    <!-- Hover icons (top-right) -->
     <div
-      class="absolute top-1 right-7 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
+      class="absolute top-1.5 right-2 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
     >
-      <!-- Add tag button (shown when no tag) -->
       <button
         v-if="!taskTag"
-        class="no-drag text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-accent-cyan transition-colors relative -left-0.5"
+        class="no-drag"
+        :style="{ color: 'var(--sm-subtle)' }"
         title="Add tag"
         @pointerdown.stop
         @click.prevent.stop="emit('openActionModal', { task, tab: 'tags' })"
       >
         <svg
-          class="w-4 h-4"
+          class="h-3.5 w-3.5"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -112,15 +105,15 @@ function openJira(e) {
           />
         </svg>
       </button>
-      <!-- Comment icon (opens comments tab) -->
       <button
-        class="no-drag text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-accent-cyan transition-colors flex items-center gap-0.5"
+        class="no-drag flex items-center gap-0.5"
+        :style="{ color: 'var(--sm-muted)' }"
         title="Comments"
         @pointerdown.stop
         @click.prevent.stop="emit('openActionModal', { task, tab: 'comments' })"
       >
         <svg
-          class="w-4 h-4"
+          class="h-3.5 w-3.5"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -132,79 +125,81 @@ function openJira(e) {
             d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
           />
         </svg>
-        <span v-if="task.comment_count > 0" class="text-[11px]">{{
+        <span v-if="task.comment_count > 0" class="font-mono text-[10px]">{{
           task.comment_count
         }}</span>
       </button>
-      <!-- Gear icon (opens modal settings/delete) -->
       <button
-        class="no-drag text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-accent-cyan transition-colors"
+        class="no-drag font-mono text-[14px] leading-none"
+        :style="{ color: 'var(--sm-muted)' }"
         title="Task settings"
         @pointerdown.stop
         @click.prevent.stop="emit('openActionModal', { task, tab: 'settings' })"
       >
-        <span class="text-2xl leading-none relative -top-0.5">⚙</span>
+        ⚙
       </button>
     </div>
 
     <!-- ID row -->
-    <div class="flex items-start gap-2 pr-6">
-      <div class="flex-1 min-w-0">
-        <a
-          v-if="jiraUrl"
-          :href="jiraUrl"
-          class="no-drag text-sm font-medium text-blue-600 dark:accent-text-primary hover:text-blue-800 dark:hover:text-cyan-200 hover:underline break-words"
-          :title="`Open ${displayId} in Jira`"
-          target="_blank"
-          rel="noopener noreferrer"
-          @click="openJira"
-          @pointerdown.stop
-          @mousedown.stop
-        >
-          {{ displayId }}
-        </a>
-        <p
-          v-else
-          class="text-sm font-medium text-gray-800 dark:text-gray-100 break-words"
-        >
-          {{ displayId }}
-        </p>
-      </div>
+    <div class="flex items-baseline justify-between gap-2 pr-12">
+      <a
+        v-if="jiraUrl"
+        :href="jiraUrl"
+        class="no-drag font-mono text-[10px] font-semibold uppercase tracking-[0.04em] hover:underline whitespace-nowrap flex-shrink-0"
+        :style="{
+          color: highlighted ? 'var(--sm-accent)' : 'var(--sm-muted)',
+        }"
+        :title="`Open ${displayId} in Jira`"
+        target="_blank"
+        rel="noopener noreferrer"
+        @click="openJira"
+        @pointerdown.stop
+        @mousedown.stop
+        >{{ displayId }}</a
+      >
+      <span
+        v-else
+        class="font-mono text-[10px] font-semibold uppercase tracking-[0.04em] whitespace-nowrap flex-shrink-0"
+        :style="{
+          color: highlighted ? 'var(--sm-accent)' : 'var(--sm-muted)',
+        }"
+        >{{ displayId }}</span
+      >
     </div>
+
     <!-- Title -->
-    <p
+    <div
       v-if="task.title"
-      class="text-xs text-gray-600 dark:text-gray-400 mt-1 break-words line-clamp-2"
+      class="mt-1.5 break-words text-[12.5px] font-medium leading-[1.38] tracking-[-0.005em] line-clamp-3"
+      :style="{ color: 'var(--sm-text)' }"
     >
       {{ task.title }}
-    </p>
-    <!-- Bottom row: details (left) | tag badge (right) -->
-    <div class="flex items-center gap-2 mt-2">
-      <!-- Details link (bottom-left) -->
+    </div>
+
+    <!-- Bottom row -->
+    <div v-if="taskTag || showInfo" class="mt-2 flex items-center gap-2">
       <button
         v-if="showInfo"
-        class="no-drag text-xs text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-accent-cyan transition-colors"
+        class="no-drag font-mono text-[9.5px] uppercase tracking-[0.08em] hover:underline"
+        :style="{ color: 'var(--sm-subtle)' }"
         title="View task details"
         @pointerdown.stop
         @click.prevent.stop="emit('showInfo', task)"
       >
         details
       </button>
-      <!-- Tag badge (bottom-right, clickable, truncated) -->
+
       <button
         v-if="taskTag"
-        class="no-drag ml-auto"
-        :class="[
-          'px-2 py-0.5 rounded-full text-[10px] font-semibold inline-flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity max-w-[90px] truncate',
-          tagColors.pill,
-        ]"
+        class="no-drag ml-auto flex items-center gap-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.06em] hover:opacity-80"
+        :style="{ color: 'var(--sm-muted)' }"
         :title="taskTag.name"
         @pointerdown.stop
         @click.prevent.stop="emit('openActionModal', { task, tab: 'tags' })"
       >
         <span
-          class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-          :class="tagColors.dot"
+          class="block h-1.5 w-1.5 flex-shrink-0"
+          :style="{ background: tagColorVar }"
         ></span>
         {{ truncatedTagName }}
       </button>

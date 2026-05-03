@@ -3,21 +3,12 @@ import { ref, onMounted, computed } from 'vue';
 import { useSessionStore } from '../stores/session';
 import { useUserStore } from '../stores/user';
 import APIService from '../services/api';
-import { TAG_COLOR_PALETTE, getTagColorClasses } from './taskTags';
+import { TAG_COLOR_PALETTE } from './taskTags';
 
 const props = defineProps({
-  task: {
-    type: Object,
-    required: true,
-  },
-  tags: {
-    type: Array,
-    default: () => [],
-  },
-  initialTab: {
-    type: String,
-    default: 'tags',
-  },
+  task: { type: Object, required: true },
+  tags: { type: Array, default: () => [] },
+  initialTab: { type: String, default: 'tags' },
 });
 
 const emit = defineEmits(['close', 'updateTag', 'deleteTask']);
@@ -32,7 +23,6 @@ const loadingComments = ref(false);
 const commentText = ref('');
 const submittingComment = ref(false);
 
-// Create tag form
 const showCreateTag = ref(false);
 const newTagName = ref('');
 const newTagColor = ref('blue');
@@ -52,6 +42,21 @@ const orderedTags = computed(() => {
   });
   return sorted;
 });
+
+const TAG_COLOR_VARS = {
+  yellow: 'var(--sm-tag-yellow)',
+  green: 'var(--sm-tag-green)',
+  red: 'var(--sm-tag-red)',
+  blue: 'var(--sm-tag-blue)',
+  purple: 'var(--sm-tag-purple)',
+  orange: 'var(--sm-tag-orange)',
+  pink: 'var(--sm-tag-pink)',
+  cyan: 'var(--sm-tag-cyan)',
+};
+
+function tagColorVar(color) {
+  return TAG_COLOR_VARS[color] || 'var(--sm-tag-blue)';
+}
 
 onMounted(() => {
   loadComments();
@@ -87,7 +92,6 @@ async function handleCreateTag() {
     showCreateTag.value = false;
     newTagName.value = '';
     newTagColor.value = 'blue';
-    // Auto-select the new tag
     if (tag) {
       emit('updateTag', props.task.id, tag.id);
     }
@@ -138,119 +142,147 @@ function formatTime(dateStr) {
   const d = new Date(dateStr);
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
+
+const displayId = computed(() => props.task.display_id || props.task.id);
 </script>
 
 <template>
   <div
-    class="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center z-50"
+    class="fixed inset-0 z-50 flex items-center justify-center"
+    :style="{ background: 'rgba(10,10,10,0.55)', backdropFilter: 'blur(2px)' }"
     @click.self="emit('close')"
   >
     <div
-      class="bg-warm-50 dark:glass-panel-solid rounded-lg shadow-xl dark:shadow-card w-full max-w-md mx-4 max-h-[80vh] flex flex-col warm-glow-border"
+      class="mx-4 flex w-full max-w-md flex-col sm-card sm-shadow-hard"
+      style="max-height: 80vh"
     >
       <!-- Header -->
       <div
-        class="px-4 py-3 border-b border-warm-300 dark:border-white/10 flex items-center justify-between flex-shrink-0"
+        class="flex items-center justify-between px-5 py-3.5 flex-shrink-0"
+        :style="{ borderBottom: '1px solid var(--sm-border)' }"
       >
-        <h3
-          class="font-semibold text-gray-800 dark:text-white text-sm truncate"
-        >
-          {{ task.display_id || task.id }} - {{ task.title || 'Untitled' }}
-        </h3>
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span
+            class="px-2 py-0.5 font-mono text-[10.5px] font-bold tracking-[0.04em] flex-shrink-0"
+            :style="{
+              color: 'var(--sm-ink)',
+              background: 'var(--sm-card-alt)',
+              border: '1px solid var(--sm-border)',
+              borderRadius: '1px',
+            }"
+            >{{ displayId }}</span
+          >
+          <span
+            class="text-[12.5px] font-medium truncate"
+            :style="{ color: 'var(--sm-text)' }"
+            >{{ task.title || 'Untitled' }}</span
+          >
+        </div>
         <button
           @click="emit('close')"
-          class="text-gray-400 hover:text-gray-600 dark:hover:text-white ml-2 text-lg leading-none"
+          class="ml-2 flex h-7 w-7 flex-shrink-0 items-center justify-center font-mono text-[13px]"
+          :style="{
+            background: 'transparent',
+            border: '1px solid var(--sm-border)',
+            borderRadius: '2px',
+            color: 'var(--sm-muted)',
+          }"
         >
-          x
+          ✕
         </button>
       </div>
 
       <!-- Tabs -->
       <div
-        class="flex border-b border-warm-300 dark:border-white/10 flex-shrink-0"
+        class="flex flex-shrink-0"
+        :style="{ borderBottom: '1px solid var(--sm-border)' }"
       >
         <button
-          :class="[
-            'flex-1 px-4 py-2 text-sm font-medium transition-colors',
-            activeTab === 'tags'
-              ? 'text-blue-600 dark:text-accent-cyan border-b-2 border-blue-600 dark:border-accent-cyan'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200',
+          v-for="tab in [
+            { id: 'tags', label: 'Tags' },
+            { id: 'comments', label: 'Comments' },
+            { id: 'settings', label: 'Settings' },
           ]"
-          @click="activeTab = 'tags'"
+          :key="tab.id"
+          @click="activeTab = tab.id"
+          class="flex-1 py-2.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.08em] transition-colors"
+          :style="{
+            color: activeTab === tab.id ? 'var(--sm-ink)' : 'var(--sm-muted)',
+            borderBottom:
+              activeTab === tab.id
+                ? '2px solid var(--sm-accent)'
+                : '2px solid transparent',
+            marginBottom: '-1px',
+          }"
         >
-          Tags
-        </button>
-        <button
-          :class="[
-            'flex-1 px-4 py-2 text-sm font-medium transition-colors',
-            activeTab === 'comments'
-              ? 'text-blue-600 dark:text-accent-cyan border-b-2 border-blue-600 dark:border-accent-cyan'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200',
-          ]"
-          @click="activeTab = 'comments'"
-        >
-          Comments
+          {{ tab.label }}
           <span
-            v-if="comments.length > 0"
-            class="ml-1 text-xs bg-warm-300 dark:bg-white/10 rounded-full px-1.5"
+            v-if="tab.id === 'comments' && comments.length > 0"
+            class="ml-1 px-1.5 py-px text-[9.5px] font-mono"
+            :style="{
+              background: 'var(--sm-card-alt)',
+              borderRadius: '1px',
+              color: 'var(--sm-ink)',
+            }"
+            >{{ comments.length }}</span
           >
-            {{ comments.length }}
-          </span>
-        </button>
-        <button
-          :class="[
-            'flex-1 px-4 py-2 text-sm font-medium transition-colors',
-            activeTab === 'settings'
-              ? 'text-blue-600 dark:text-accent-cyan border-b-2 border-blue-600 dark:border-accent-cyan'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200',
-          ]"
-          @click="activeTab = 'settings'"
-        >
-          Settings
         </button>
       </div>
 
-      <!-- Tab Content -->
-      <div class="flex-1 overflow-y-auto p-4">
-        <!-- Tags Tab -->
-        <div v-if="activeTab === 'tags'" class="space-y-3">
-          <div class="flex flex-col gap-2">
-            <button
-              v-for="tag in orderedTags"
-              :key="tag.id"
-              :class="[
-                'px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer flex items-center gap-2',
+      <!-- Tab content -->
+      <div class="flex-1 overflow-y-auto p-5">
+        <!-- Tags tab -->
+        <div v-if="activeTab === 'tags'" class="flex flex-col gap-2.5">
+          <button
+            v-for="tag in orderedTags"
+            :key="tag.id"
+            :data-active="currentTagId === tag.id ? 'true' : undefined"
+            class="flex items-center gap-2.5 px-3 py-2 transition-all cursor-pointer"
+            :style="{
+              background:
                 currentTagId === tag.id
-                  ? getTagColorClasses(tag.color).pillActive +
-                    ' shadow-lg scale-[1.02]'
-                  : getTagColorClasses(tag.color).pill +
-                    ' hover:scale-[1.01] hover:brightness-110',
-              ]"
-              @click="selectTag(tag.id)"
+                  ? 'var(--sm-active-row)'
+                  : 'transparent',
+              border:
+                currentTagId === tag.id
+                  ? '1px solid var(--sm-accent)'
+                  : '1px solid var(--sm-border)',
+              borderRadius: '2px',
+              boxShadow:
+                currentTagId === tag.id ? '2px 2px 0 var(--sm-accent)' : 'none',
+            }"
+            @click="selectTag(tag.id)"
+          >
+            <span
+              class="block h-2 w-2 flex-shrink-0"
+              :style="{ background: tagColorVar(tag.color) }"
+            ></span>
+            <span
+              class="flex-1 text-left text-[13px] font-medium tracking-[-0.005em]"
+              :style="{ color: 'var(--sm-text)' }"
+              >{{ tag.name }}</span
             >
-              <span
-                class="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                :class="getTagColorClasses(tag.color).dot"
-              ></span>
-              <span class="flex-1 text-left">{{ tag.name }}</span>
-              <span v-if="currentTagId === tag.id" class="text-xs font-bold"
-                >✓</span
-              >
-              <button
-                v-if="!tag.is_builtin"
-                class="ml-1 text-current opacity-50 hover:opacity-100 text-xs"
-                title="Delete tag"
-                @click.stop="handleDeleteTag(tag.id)"
-              >
-                ✕
-              </button>
+            <span
+              v-if="currentTagId === tag.id"
+              class="font-mono text-[10px] font-bold"
+              :style="{ color: 'var(--sm-ink)' }"
+              >✓</span
+            >
+            <button
+              v-if="!tag.is_builtin"
+              class="font-mono text-[10px]"
+              :style="{ color: 'var(--sm-muted)' }"
+              title="Delete tag"
+              @click.stop="handleDeleteTag(tag.id)"
+            >
+              ✕
             </button>
-          </div>
+          </button>
 
-          <!-- Clear tag -->
           <button
             v-if="currentTagId"
-            class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline"
+            class="mt-1 self-start font-mono text-[10.5px] uppercase tracking-[0.08em] hover:underline"
+            :style="{ color: 'var(--sm-muted)' }"
             @click="selectTag(null)"
           >
             Clear tag
@@ -259,67 +291,68 @@ function formatTime(dateStr) {
           <!-- Create tag -->
           <div
             v-if="showCreateTag"
-            class="space-y-2 pt-2 border-t border-warm-300 dark:border-white/10"
+            class="mt-2 flex flex-col gap-2 pt-3"
+            :style="{ borderTop: '1px solid var(--sm-hairline)' }"
           >
             <input
               v-model="newTagName"
               type="text"
               placeholder="Tag name"
-              class="w-full px-3 py-1.5 text-sm border border-warm-400 dark:border-white/20 rounded-lg dark:bg-dark-bg-700 dark:text-white focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent-cyan"
+              class="sm-input text-[13px]"
               @keyup.enter="handleCreateTag"
             />
             <div class="flex flex-wrap gap-1.5">
               <button
                 v-for="color in TAG_COLOR_PALETTE"
                 :key="color.id"
-                :class="[
-                  'w-6 h-6 rounded-full border-2 transition-all',
-                  getTagColorClasses(color.id).dot,
-                  newTagColor === color.id
-                    ? 'border-gray-800 dark:border-white scale-110'
-                    : 'border-transparent hover:border-gray-400 dark:hover:border-gray-500',
-                ]"
+                class="h-6 w-6 transition-all"
+                :style="{
+                  background: tagColorVar(color.id),
+                  borderRadius: '2px',
+                  outline:
+                    newTagColor === color.id
+                      ? '2px solid var(--sm-ink)'
+                      : 'none',
+                  outlineOffset: '2px',
+                }"
                 :title="color.name"
                 @click="newTagColor = color.id"
               ></button>
             </div>
             <div class="flex gap-2">
               <button
-                class="px-3 py-1 text-xs rounded-lg transition-colors font-medium cursor-pointer btn-gradient-primary"
+                class="sm-btn sm-btn-primary text-[10px]"
                 @click="handleCreateTag"
               >
                 Save
               </button>
-              <button
-                class="px-3 py-1 text-xs bg-warm-300 dark:bg-white/10 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-white/20 transition-colors"
-                @click="showCreateTag = false"
-              >
+              <button class="sm-btn text-[10px]" @click="showCreateTag = false">
                 Cancel
               </button>
             </div>
           </div>
           <button
             v-else
-            class="text-xs text-blue-600 dark:text-accent-cyan hover:underline"
+            class="self-start font-mono text-[10.5px] uppercase tracking-[0.08em] hover:underline"
+            :style="{ color: 'var(--sm-ink)' }"
             @click="showCreateTag = true"
           >
-            + Create Tag
+            + Create tag
           </button>
         </div>
 
-        <!-- Comments Tab -->
-        <div v-if="activeTab === 'comments'" class="space-y-3">
-          <!-- Comment input -->
+        <!-- Comments tab -->
+        <div v-if="activeTab === 'comments'" class="flex flex-col gap-3">
           <div class="flex gap-2">
             <input
               v-model="commentText"
               type="text"
-              placeholder="Add a comment..."
-              class="flex-1 px-3 py-1.5 text-sm border border-warm-400 dark:border-white/20 rounded-lg dark:bg-dark-bg-700 dark:text-white focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent-cyan"
+              placeholder="Add a comment…"
+              class="sm-input flex-1 text-[13px]"
               @keyup.enter="handleAddComment"
             />
             <button
-              class="px-3 py-1.5 text-xs rounded-lg transition-colors font-medium cursor-pointer btn-gradient-primary"
+              class="sm-btn sm-btn-primary text-[10px]"
               :disabled="!commentText.trim() || submittingComment"
               @click="handleAddComment"
             >
@@ -327,61 +360,68 @@ function formatTime(dateStr) {
             </button>
           </div>
 
-          <!-- Comments list -->
-          <div v-if="loadingComments" class="text-center py-4">
-            <p class="text-sm text-gray-400 dark:text-gray-500">Loading...</p>
+          <div v-if="loadingComments" class="py-3 text-center">
+            <span class="sm-label">Loading…</span>
           </div>
-          <div v-else-if="comments.length === 0" class="text-center py-4">
-            <p class="text-sm text-gray-400 dark:text-gray-500">
-              No comments yet
-            </p>
+          <div v-else-if="comments.length === 0" class="py-3 text-center">
+            <span class="sm-label">No comments yet</span>
           </div>
-          <div v-else class="space-y-2">
+          <div v-else class="flex flex-col gap-2.5">
             <div
-              v-for="comment in comments"
-              :key="comment.id"
-              class="bg-warm-100 dark:bg-dark-bg-700/50 rounded-lg px-3 py-2"
+              v-for="c in comments"
+              :key="c.id"
+              class="px-3 py-2 sm-card-alt"
             >
-              <div class="flex items-center justify-between mb-1">
+              <div class="mb-1 flex items-center justify-between">
                 <span
-                  class="text-xs font-medium text-gray-700 dark:text-gray-300"
+                  class="text-[12px] font-semibold tracking-[-0.005em]"
+                  :style="{ color: 'var(--sm-ink)' }"
+                  >{{ c.user_name }}</span
                 >
-                  {{ comment.user_name }}
-                </span>
-                <span class="text-xs text-gray-400 dark:text-gray-500">
-                  {{ formatTime(comment.created_at) }}
-                </span>
+                <span
+                  class="font-mono text-[10px]"
+                  :style="{ color: 'var(--sm-subtle)' }"
+                  >{{ formatTime(c.created_at) }}</span
+                >
               </div>
-              <p class="text-sm text-gray-600 dark:text-gray-400">
-                {{ comment.content }}
+              <p
+                class="text-[13px] leading-[1.5]"
+                :style="{ color: 'var(--sm-text)' }"
+              >
+                {{ c.content }}
               </p>
             </div>
           </div>
         </div>
 
-        <!-- Settings Tab -->
-        <div v-if="activeTab === 'settings'" class="space-y-4">
+        <!-- Settings tab -->
+        <div v-if="activeTab === 'settings'" class="flex flex-col gap-4">
           <div
-            class="border border-red-200 dark:border-red-800/50 rounded-lg p-4"
+            class="p-4"
+            :style="{
+              border: '1px solid #ef4444',
+              borderRadius: '2px',
+            }"
           >
-            <h4 class="text-sm font-medium text-red-700 dark:text-red-400 mb-2">
-              Danger Zone
-            </h4>
-            <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            <div class="mb-1.5 flex items-center gap-2">
+              <span class="sm-label" :style="{ color: '#ef4444' }"
+                >Danger zone</span
+              >
+            </div>
+            <p
+              class="mb-3 text-[12px] leading-[1.5]"
+              :style="{ color: 'var(--sm-muted)' }"
+            >
               Permanently delete this task. This action cannot be undone.
             </p>
             <button
-              :class="[
-                'px-3 py-1.5 text-sm rounded-lg font-medium transition-colors',
-                confirmDelete
-                  ? 'bg-red-600 text-white hover:bg-red-700'
-                  : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50',
-              ]"
+              class="sm-btn sm-btn-danger"
+              :style="
+                confirmDelete ? { background: '#ef4444', color: '#fff' } : {}
+              "
               @click="handleDeleteTask"
             >
-              {{
-                confirmDelete ? 'Click again to confirm delete' : 'Delete Task'
-              }}
+              {{ confirmDelete ? 'Click again to confirm' : 'Delete task' }}
             </button>
           </div>
         </div>
