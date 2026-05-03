@@ -147,7 +147,7 @@ async function createAuthenticatedUserInSession(
 
   // Navigate to the session board
   await page.goto(`/session/${roomCode}`);
-  await page.waitForSelector('text=Room Code:', { timeout: 10000 });
+  await page.waitForSelector(`text=RP/${roomCode}`, { timeout: 10000 });
 
   return { context, page, userId };
 }
@@ -177,7 +177,7 @@ async function openBrowserAsUser(browser, roomCode, userId, userName) {
   );
 
   await page.goto(`/session/${roomCode}`);
-  await page.waitForSelector('text=Room Code:', { timeout: 10000 });
+  await page.waitForSelector(`text=RP/${roomCode}`, { timeout: 10000 });
 
   return { context, page, userId };
 }

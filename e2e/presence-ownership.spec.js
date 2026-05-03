@@ -88,7 +88,7 @@ test.describe('Presence Tracking', () => {
     );
 
     // Creator (skipped) + Alice = 2 total, 1 active
-    await expect(creator.page.getByText('Participants (1/2)')).toBeVisible(
+    await expect(creator.page.getByText('[1/2]').first()).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -98,8 +98,8 @@ test.describe('Presence Tracking', () => {
     // Wait for Alice to be considered offline (>15s threshold)
     await sleep(17000);
 
-    // Alice should be shown as offline in the sidebar participant list
-    await expect(creator.page.getByText('(offline)')).toBeVisible(POLL_TIMEOUT);
+    // Alice should be shown as offline in the sidebar (status text "○ offline")
+    await expect(creator.page.getByText(/○ offline/)).toBeVisible(POLL_TIMEOUT);
 
     await creator.context.close();
   });
@@ -127,8 +127,8 @@ test.describe('Presence Tracking', () => {
     // Wait for polling to establish presence
     await sleep(3000);
 
-    // Neither user should have "(offline)" indicator in the sidebar
-    const offlineLabels = creator.page.getByText('(offline)');
+    // Neither user should have offline status indicator in the sidebar
+    const offlineLabels = creator.page.getByText(/○ offline/);
     await expect(offlineLabels).toHaveCount(0);
 
     await aliceCtx.context.close();
@@ -229,27 +229,27 @@ test.describe('Manual Ownership Transfer', () => {
       'Alice'
     );
 
-    // Creator should see "Create Task" button
+    // Creator should see the "+ Create" sidebar button
     await expect(
-      creator.page.getByRole('button', { name: 'Create Task' })
+      creator.page.getByRole('button', { name: '+ Create' })
     ).toBeVisible(POLL_TIMEOUT);
 
-    // Alice should NOT see "Create Task" button yet
+    // Alice should NOT see "+ Create" button yet
     await expect(
-      alicePage.page.getByRole('button', { name: 'Create Task' })
+      alicePage.page.getByRole('button', { name: '+ Create' })
     ).not.toBeVisible();
 
     // Transfer ownership to Alice via API
     await transferOwnershipViaAPI(request, roomCode, creatorId, alice.userId);
 
-    // After poll cycle, Alice should now see "Create Task" button
+    // After poll cycle, Alice should now see "+ Create" button
     await expect(
-      alicePage.page.getByRole('button', { name: 'Create Task' })
+      alicePage.page.getByRole('button', { name: '+ Create' })
     ).toBeVisible(POLL_TIMEOUT);
 
-    // Creator should no longer see "Create Task" button
+    // Creator should no longer see "+ Create" button
     await expect(
-      creator.page.getByRole('button', { name: 'Create Task' })
+      creator.page.getByRole('button', { name: '+ Create' })
     ).not.toBeVisible(POLL_TIMEOUT);
 
     await alicePage.context.close();
@@ -291,12 +291,13 @@ test.describe('Manual Ownership Transfer', () => {
     );
 
     // Creator (skipped) + Alice = 2 total, 1 active
-    await expect(creator.page.getByText('Participants (1/2)')).toBeVisible(
+    await expect(creator.page.getByText('[1/2]').first()).toBeVisible(
       POLL_TIMEOUT
     );
 
     // The transfer button (person icon SVG) should be visible for Alice in the sidebar
     // There should be exactly one transfer button (not for the creator themselves)
+    // Hover-to-show requires forcing visibility — so we check it exists, not visibility.
     const transferButtons = creator.page.locator(
       'button[title="Transfer ownership"]'
     );
@@ -363,7 +364,7 @@ test.describe('Disabled User Protection', () => {
     );
 
     // Wait for initial load — session is started, creator has the turn
-    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
+    await expect(creator.page.getByText('◆ Your turn')).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -372,13 +373,13 @@ test.describe('Disabled User Protection', () => {
       skipped_participants: [creatorId],
     });
 
-    // Should see the "all disabled" red banner
+    // Should see the "all participants disabled" warning banner
     await expect(
-      creator.page.getByText('All participants are disabled')
+      creator.page.getByText(/All participants disabled/i)
     ).toBeVisible(POLL_TIMEOUT);
 
-    // The "It's your turn!" banner should be gone
-    await expect(creator.page.getByText("It's your turn!")).not.toBeVisible();
+    // The "Your turn" banner should be gone
+    await expect(creator.page.getByText('◆ Your turn')).not.toBeVisible();
 
     // Verify via API that turn is null
     const data = await getSessionViaAPI(request, roomCode);
