@@ -1,10 +1,11 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { v4 as uuidv4 } from 'uuid';
 import { useUserStore } from '../stores/user';
 import { useThemeStore } from '../stores/theme';
 import APIService from '../services/api';
+import { getLastSession, clearLastSession } from '../utils/sessionCache';
 import Version from './Version.vue';
 
 const router = useRouter();
@@ -17,6 +18,47 @@ const roomCode = ref('');
 const mode = ref('create');
 const loading = ref(false);
 const error = ref(null);
+
+// Rejoin pill — visible when localStorage has a recent session and the
+// backend confirms it still exists. Falls back silently on any failure.
+const rejoinRoomCode = ref(null);
+
+async function checkForRejoinableSession() {
+  // If the user is being deep-linked into a join flow, the rejoin hint
+  // would compete with that — defer to the join intent.
+  if (route.query.join) return;
+
+  const cached = getLastSession();
+  if (!cached) return;
+
+  try {
+    await APIService.getSession(cached.roomCode);
+    rejoinRoomCode.value = cached.roomCode;
+  } catch {
+    // Session expired / not found — drop the stale hint.
+    clearLastSession();
+  }
+}
+
+function handleRejoin() {
+  if (!rejoinRoomCode.value) return;
+  // If we already have an identity, go straight to the board; the board's
+  // mounted hook will re-join the user via API. Otherwise, prefill the
+  // join form with the cached code.
+  if (userStore.userId && userStore.userName) {
+    router.push(`/session/${rejoinRoomCode.value}`);
+  } else {
+    roomCode.value = rejoinRoomCode.value;
+    mode.value = 'join';
+  }
+}
+
+function dismissRejoin() {
+  rejoinRoomCode.value = null;
+  clearLastSession();
+}
+
+onMounted(checkForRejoinableSession);
 
 if (route.query.join) {
   roomCode.value = route.query.join;
@@ -184,6 +226,52 @@ function submit() {
 
       <!-- Right form card -->
       <section class="lg:w-[420px] lg:flex-shrink-0">
+        <!-- Rejoin pill -->
+        <div
+          v-if="rejoinRoomCode"
+          class="mb-4 flex items-center justify-between gap-3 px-4 py-3"
+          :style="{
+            background: 'var(--sm-active-row)',
+            border: '1px solid var(--sm-accent)',
+            borderRadius: '2px',
+            boxShadow: '4px 4px 0 var(--sm-accent)',
+          }"
+        >
+          <div class="min-w-0 flex-1">
+            <div class="sm-label" :style="{ color: 'var(--sm-ink)' }">
+              Pick up where you left off
+            </div>
+            <div
+              class="mt-1 truncate font-mono text-[12.5px] font-bold tracking-[0.04em]"
+              :style="{ color: 'var(--sm-ink)' }"
+            >
+              RP/{{ rejoinRoomCode }}
+            </div>
+          </div>
+          <button
+            type="button"
+            @click="handleRejoin"
+            class="sm-btn sm-btn-primary flex-shrink-0"
+          >
+            <span>Rejoin</span>
+            <span>↵</span>
+          </button>
+          <button
+            type="button"
+            @click="dismissRejoin"
+            class="flex h-7 w-7 flex-shrink-0 items-center justify-center font-mono text-[12px]"
+            title="Dismiss"
+            :style="{
+              background: 'transparent',
+              border: '1px solid var(--sm-border)',
+              borderRadius: '2px',
+              color: 'var(--sm-muted)',
+            }"
+          >
+            ✕
+          </button>
+        </div>
+
         <div class="relative p-7 sm-card sm-shadow-hard">
           <!-- Tab strip -->
           <div

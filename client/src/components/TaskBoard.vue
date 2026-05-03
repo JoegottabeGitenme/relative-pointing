@@ -10,6 +10,7 @@ import {
   getCachedJiraBaseUrl,
   setCachedJiraBaseUrl,
 } from '../utils/jiraUrlBuilder';
+import { setLastSession } from '../utils/sessionCache';
 import Column from './Column.vue';
 import CreateColumnDropZone from './CreateColumnDropZone.vue';
 import ParticipantList from './ParticipantList.vue';
@@ -161,6 +162,9 @@ onMounted(async () => {
   } catch {
     // Already a participant or other non-fatal error
   }
+  // Remember this session so the landing page can offer to rejoin after
+  // an accidental close / reload.
+  setLastSession(roomCode.value);
   sessionStore.startPolling(roomCode.value);
 });
 
