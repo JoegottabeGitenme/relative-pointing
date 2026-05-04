@@ -17,7 +17,7 @@ const props = defineProps({
   collapsed: { type: Boolean, default: false },
   isMyTurn: { type: Boolean, default: false },
   turnActive: { type: Boolean, default: false },
-  currentTurnColor: { type: String, default: '#facc15' },
+  currentTurnColor: { type: String, default: '#329AF0' },
   turnStartedAt: { type: String, default: null },
   accumulatedSand: { type: Array, default: () => [] },
   draining: { type: Boolean, default: false },
