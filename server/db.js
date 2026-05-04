@@ -11,7 +11,7 @@ const AUTO_SKIP_TURN_S = parseInt(process.env.AUTO_SKIP_TURN_S, 10) || 30;
 const AUTO_TRANSFER_OWNER_S =
   parseInt(process.env.AUTO_TRANSFER_OWNER_S, 10) || 60;
 
-const DB_PATH = path.join(__dirname, 'app.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'app.db');
 
 // Create database connection
 const db = new sqlite3.Database(DB_PATH, (err) => {

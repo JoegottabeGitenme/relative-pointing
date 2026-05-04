@@ -1,0 +1,23 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: relative-pointing:latest
+    container_name: relative-pointing
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      NODE_ENV: production
+      PORT: 5001
+      DB_PATH: /data/app.db
+      # Presence/turn timing (seconds) — defaults match server/db.js
+      OFFLINE_THRESHOLD_S: 15
+      AUTO_SKIP_TURN_S: 30
+      AUTO_TRANSFER_OWNER_S: 60
+    volumes:
+      - app-data:/data
+
+volumes:
+  app-data:
