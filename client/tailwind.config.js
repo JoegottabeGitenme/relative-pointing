@@ -25,9 +25,9 @@ export default {
       },
       colors: {
         // Studio Mono accent (single highlight)
-        accent: '#facc15',
-        'accent-soft': '#fefce8',
-        'accent-soft-dark': '#3a2e0a',
+        accent: '#329AF0',
+        'accent-soft': '#e7f4fe',
+        'accent-soft-dark': '#0a243d',
 
         // Light surface tokens
         ink: '#0a0a0a',
@@ -49,12 +49,12 @@ export default {
         'tag-purple-dark': '#a78bfa',
 
         // Legacy palette tokens kept so existing classes still resolve
-        'accent-cyan': '#facc15',
-        'accent-rose': '#facc15',
-        'accent-green': '#facc15',
-        'accent-blue': '#facc15',
-        'accent-yellow': '#facc15',
-        'accent-red': '#facc15',
+        'accent-cyan': '#329AF0',
+        'accent-rose': '#329AF0',
+        'accent-green': '#329AF0',
+        'accent-blue': '#329AF0',
+        'accent-yellow': '#329AF0',
+        'accent-red': '#329AF0',
         warm: {
           50: '#ffffff',
           100: '#fafafa',
@@ -74,7 +74,7 @@ export default {
         // Studio Mono signature: hard offset shadow
         'hard-sm': '4px 4px 0 #0a0a0a',
         hard: '8px 8px 0 #0a0a0a',
-        'hard-accent': '4px 4px 0 #facc15',
+        'hard-accent': '4px 4px 0 #329AF0',
         'hard-dark': '8px 8px 0 #2a2a2a',
         // Legacy keys kept (mapped to flat shadows so existing classes still load)
         'glow-primary-sm': '0 1px 2px rgba(0,0,0,0.04)',
