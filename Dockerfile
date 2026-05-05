@@ -40,9 +40,13 @@ COPY --from=builder /app/server ./server
 COPY --from=builder /app/client/package.json ./client/package.json
 COPY --from=builder /app/client/dist ./client/dist
 
-# SQLite data lives outside the app tree so it can be a clean volume mount
-RUN mkdir -p /data
+# SQLite data lives outside the app tree so it can be a clean volume mount.
+# Owned by `node` so the unprivileged process can create app.db on first run.
+RUN mkdir -p /data \
+ && chown -R node:node /app /data
 VOLUME ["/data"]
+
+USER node
 
 EXPOSE 5001
 

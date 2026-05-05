@@ -17,6 +17,16 @@ services:
       AUTO_TRANSFER_OWNER_S: ${AUTO_TRANSFER_OWNER_S:-60}
     volumes:
       - app-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # TLS-terminating reverse proxy. Opt-in: only starts with `--profile tls`.
   # Requires EC2_DOMAIN to resolve to this host before first start so Caddy
@@ -40,6 +50,11 @@ services:
       - caddy-config:/config
     depends_on:
       - app
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   app-data:
