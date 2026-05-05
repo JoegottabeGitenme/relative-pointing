@@ -19,18 +19,18 @@ A collaborative web application for Scrum teams to perform relative story pointi
 
 ## Tech Stack
 
-| Layer     | Technology                 | Purpose                     |
-| --------- | -------------------------- | --------------------------- |
-| Frontend  | Vue 3 (Composition API)    | UI framework                |
-| State     | Pinia                      | Reactive stores             |
-| Drag-Drop | vuedraggable (Sortable.js) | Task/column reordering      |
-| Styling   | Tailwind CSS               | Utility-first CSS           |
-| Build     | Vite                       | Dev server and bundler      |
-| Backend   | Express.js                 | REST API with rate limiting |
-| Realtime  | Socket.io                  | WebSocket connections       |
-| Database  | SQLite                     | File-based persistence      |
-| CSV       | PapaParse                  | CSV file parsing            |
-| Testing   | Playwright                 | End-to-end tests            |
+| Layer     | Technology                 | Purpose                      |
+| --------- | -------------------------- | ---------------------------- |
+| Frontend  | Vue 3 (Composition API)    | UI framework                 |
+| State     | Pinia                      | Reactive stores              |
+| Drag-Drop | vuedraggable (Sortable.js) | Task/column reordering       |
+| Styling   | Tailwind CSS               | Utility-first CSS            |
+| Build     | Vite                       | Dev server and bundler       |
+| Backend   | Express.js                 | REST API with rate limiting  |
+| Realtime  | HTTP polling               | Periodic GET /sessions/:code |
+| Database  | SQLite                     | File-based persistence       |
+| CSV       | PapaParse                  | CSV file parsing             |
+| Testing   | Playwright                 | End-to-end tests             |
 
 ## Project Structure
 
@@ -65,7 +65,7 @@ relative-pointing/
 │   ├── package.json
 │   └── vite.config.js
 ├── server/
-│   ├── server.js           ← Express app + Socket.io
+│   ├── server.js           ← Express app
 │   ├── db.js               ← SQLite init, migrations, presence checker
 │   ├── schema.sql          ← Database schema
 │   └── routes/
@@ -77,9 +77,11 @@ relative-pointing/
 │   ├── helpers/
 │   └── *.spec.js
 ├── sample-tasks.csv        ← Sample CSV for testing
-├── run                     ← Quick-start script
-├── deploy.sh               ← EC2 deployment script
-└── deploy-remote.sh        ← Remote deployment via SCP
+├── run                     ← Local quick-start script
+├── Dockerfile              ← Multi-stage build (client + server)
+├── docker-compose.yml      ← App + optional Caddy TLS sidecar
+├── Caddyfile               ← Caddy reverse-proxy config
+└── RUNBOOK.md              ← Deploy guide
 ```
 
 ## Quick Start
@@ -101,7 +103,7 @@ npm run dev
 
 This starts:
 
-- Backend on **http://localhost:5001** (Express API + Socket.io)
+- Backend on **http://localhost:5001** (Express API)
 - Frontend on **http://localhost:3000** (Vite dev server)
 
 ### Using the App
@@ -267,15 +269,15 @@ comments    — id, task_id, session_id, user_id, user_name, content, created_at
 
 ## Deployment
 
-Deploy to AWS EC2 with one command:
+Deploy to AWS EC2 with Docker + Caddy:
 
 ```bash
 cp .env.example .env
-# Edit .env with your EC2 details
-./deploy-remote.sh
+# Edit .env with your EC2_DOMAIN and other details
+docker compose --profile tls up -d --build
 ```
 
-See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the complete deployment guide covering EC2 setup, nginx, SSL, and systemd configuration.
+See **[RUNBOOK.md](RUNBOOK.md)** for the full deployment guide (prereqs, updates, ops, troubleshooting).
 
 ## License
 

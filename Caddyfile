@@ -1,0 +1,15 @@
+# Caddy reverse proxy for relative-pointing.
+# - Auto-provisions a Let's Encrypt cert for {$EC2_DOMAIN} on first start.
+# - HTTP/80 is auto-redirected to HTTPS/443.
+# - Forwards everything to the app container on the internal docker network.
+#
+# To receive expiry notifications, add a global block above the site block:
+#
+#   {
+#       email you@your-domain.com
+#   }
+
+{$EC2_DOMAIN} {
+	encode gzip zstd
+	reverse_proxy app:{$APP_PORT}
+}

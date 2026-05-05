@@ -3,21 +3,60 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: relative-pointing:latest
+    image: ${IMAGE:-relative-pointing:latest}
     container_name: relative-pointing
     restart: unless-stopped
     ports:
-      - "5001:5001"
+      - "${HOST_PORT:-5001}:${APP_PORT:-5001}"
     environment:
       NODE_ENV: production
-      PORT: 5001
-      DB_PATH: /data/app.db
-      # Presence/turn timing (seconds) — defaults match server/db.js
-      OFFLINE_THRESHOLD_S: 15
-      AUTO_SKIP_TURN_S: 30
-      AUTO_TRANSFER_OWNER_S: 60
+      PORT: ${APP_PORT:-5001}
+      DB_PATH: ${DB_PATH:-/data/app.db}
+      OFFLINE_THRESHOLD_S: ${OFFLINE_THRESHOLD_S:-15}
+      AUTO_SKIP_TURN_S: ${AUTO_SKIP_TURN_S:-30}
+      AUTO_TRANSFER_OWNER_S: ${AUTO_TRANSFER_OWNER_S:-60}
     volumes:
       - app-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # TLS-terminating reverse proxy. Opt-in: only starts with `--profile tls`.
+  # Requires EC2_DOMAIN to resolve to this host before first start so Caddy
+  # can complete the Let's Encrypt HTTP-01 challenge.
+  caddy:
+    image: caddy:2-alpine
+    container_name: relative-pointing-caddy
+    restart: unless-stopped
+    profiles: ["tls"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      EC2_DOMAIN: ${EC2_DOMAIN}
+      CERTBOT_EMAIL: ${CERTBOT_EMAIL:-}
+      APP_PORT: ${APP_PORT:-5001}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   app-data:
+  caddy-data:
+  caddy-config:
