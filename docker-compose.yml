@@ -13,8 +13,6 @@ services:
       PORT: ${APP_PORT:-5001}
       DB_PATH: ${DB_PATH:-/data/app.db}
       OFFLINE_THRESHOLD_S: ${OFFLINE_THRESHOLD_S:-15}
-      AUTO_SKIP_TURN_S: ${AUTO_SKIP_TURN_S:-30}
-      AUTO_TRANSFER_OWNER_S: ${AUTO_TRANSFER_OWNER_S:-60}
     volumes:
       - app-data:/data
     deploy:

@@ -15,6 +15,7 @@ const props = defineProps({
   dragDisabled: { type: Boolean, default: false },
   stackMode: { type: Boolean, default: false },
   topTaskId: { type: String, default: null },
+  lastPointedTaskId: { type: String, default: null },
   columnIndex: { type: Number, default: 0 },
   pointValue: { type: [Number, String, null], default: null },
 });
@@ -80,6 +81,7 @@ function onDragChange(evt) {
         :filter="'.no-drag'"
         :prevent-on-filter="false"
         :disabled="dragDisabled"
+        :scroll="false"
         class="flex-1 flex flex-col gap-1.5 min-h-[400px]"
         ghost-class="opacity-30"
         @change="onDragChange"
@@ -96,6 +98,10 @@ function onDragChange(evt) {
                 variant === 'tasks' &&
                 topTaskId &&
                 String(element.id) === String(topTaskId)
+              "
+              :last-pointed="
+                lastPointedTaskId &&
+                String(element.id) === String(lastPointedTaskId)
               "
               :drag-disabled="
                 dragDisabled ||

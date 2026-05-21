@@ -40,6 +40,7 @@ const showJiraUrlInput = ref(false);
 const sidebarCollapsed = ref(false);
 const boardAreaRef = ref(null);
 const dropZoneRef = ref(null);
+const queuePanelRef = ref(null);
 
 // Auto-collapse sidebar on narrow viewports
 const COLLAPSE_BREAKPOINT = 1024;
@@ -66,9 +67,15 @@ const isCreator = computed(
   () => userStore.userId === sessionStore.session?.creator_id
 );
 
-const dragDisabled = computed(
-  () => !sessionStore.isMyTurn || sessionStore.isCurrentUserDisabled
+// A participant can drag when it's their turn, or when the floor is open
+// (every task pointed) — but never while they're skipped/disabled.
+const canDrag = computed(
+  () =>
+    (sessionStore.isMyTurn || sessionStore.isOpenFloor) &&
+    !sessionStore.isCurrentUserDisabled
 );
+
+const dragDisabled = computed(() => !canDrag.value);
 
 // Whether any participants are enabled (not in skipped list)
 const hasActiveParticipants = computed(() => {
@@ -183,8 +190,18 @@ const unsortedTasks = computed(() =>
   sessionStore.displayTasks.filter((t) => t.column_id === 'unsorted')
 );
 
+// Cards in a column show in the order they were dropped (oldest at top, most
+// recent at the bottom) rather than by task number / import order. assigned_at
+// is an ISO-ish UTC string, so a plain string compare is chronological.
 function tasksForColumn(columnId) {
-  return sessionStore.displayTasks.filter((t) => t.column_id === columnId);
+  return sessionStore.displayTasks
+    .filter((t) => t.column_id === columnId)
+    .sort((a, b) => {
+      const at = a.assigned_at || '';
+      const bt = b.assigned_at || '';
+      if (at === bt) return 0;
+      return at < bt ? -1 : 1;
+    });
 }
 
 // Complexity header scroll navigation
@@ -327,13 +344,91 @@ function handleLogout() {
   userStore.logout();
 }
 
-// Track drag state across the whole board
+// ---------------------------------------------------------------------------
+// Drag tracking + edge auto-scroll
+//
+// While a card is being dragged, scroll the board horizontally when the cursor
+// nears the left/right edge — otherwise the leftmost/rightmost drop zones are
+// unreachable once the columns overflow the viewport. The right boundary is the
+// queue panel's left edge (it floats over the board), not the viewport edge.
+//
+// This is the *only* auto-scroller: SortableJS's built-in scroll is disabled on
+// the draggables (:scroll="false") so they don't fight this one and double up.
+// We ease toward a target velocity rather than snapping scrollLeft directly, so
+// scrolling ramps up/down smoothly and you can still settle precisely near an
+// edge to drop instead of the board running away from you.
+// ---------------------------------------------------------------------------
+const EDGE_ZONE = 70; // px from the edge where auto-scroll begins
+const MAX_SCROLL_SPEED = 13; // px per frame at the very edge
+const VELOCITY_EASING = 0.16; // how fast current speed approaches the target
+let dragPointerX = null;
+let scrollVelocity = 0;
+let autoScrollFrame = null;
+
+function onDragOver(e) {
+  dragPointerX = e.clientX;
+}
+
+// Desired scroll speed for the current cursor position. Zero unless the cursor
+// is inside an edge zone *and* there's still room to scroll that way. Intensity
+// is squared so it eases in gently from the zone's inner border to full speed
+// only at the very edge.
+function targetScrollVelocity() {
+  const container = boardAreaRef.value;
+  if (!container || dragPointerX == null) return 0;
+
+  const rect = container.getBoundingClientRect();
+  const leftEdge = rect.left;
+  const queueRect = queuePanelRef.value?.getBoundingClientRect();
+  const rightEdge =
+    queueRect && queueRect.left < rect.right ? queueRect.left : rect.right;
+
+  const canScrollLeft = container.scrollLeft > 0;
+  const canScrollRight =
+    container.scrollLeft < container.scrollWidth - container.clientWidth - 1;
+
+  if (canScrollLeft && dragPointerX < leftEdge + EDGE_ZONE) {
+    const t = Math.min(1, (leftEdge + EDGE_ZONE - dragPointerX) / EDGE_ZONE);
+    return -MAX_SCROLL_SPEED * t * t;
+  }
+  if (canScrollRight && dragPointerX > rightEdge - EDGE_ZONE) {
+    const t = Math.min(1, (dragPointerX - (rightEdge - EDGE_ZONE)) / EDGE_ZONE);
+    return MAX_SCROLL_SPEED * t * t;
+  }
+  return 0;
+}
+
+function autoScrollStep() {
+  const container = boardAreaRef.value;
+  if (container) {
+    const target = targetScrollVelocity();
+    scrollVelocity += (target - scrollVelocity) * VELOCITY_EASING;
+    // Snap tiny residual velocity to zero so it comes to a clean rest.
+    if (Math.abs(scrollVelocity) < 0.15) scrollVelocity = 0;
+    if (scrollVelocity !== 0) container.scrollLeft += scrollVelocity;
+  }
+  autoScrollFrame = requestAnimationFrame(autoScrollStep);
+}
+
 function onDragStart() {
   isDragging.value = true;
+  dragPointerX = null;
+  scrollVelocity = 0;
+  document.addEventListener('dragover', onDragOver);
+  if (autoScrollFrame == null) {
+    autoScrollFrame = requestAnimationFrame(autoScrollStep);
+  }
 }
 
 function onDragEnd() {
   isDragging.value = false;
+  dragPointerX = null;
+  scrollVelocity = 0;
+  document.removeEventListener('dragover', onDragOver);
+  if (autoScrollFrame != null) {
+    cancelAnimationFrame(autoScrollFrame);
+    autoScrollFrame = null;
+  }
 }
 
 // Add/remove document-level listeners for drag detection
@@ -345,6 +440,11 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('dragstart', onDragStart);
   document.removeEventListener('dragend', onDragEnd);
+  document.removeEventListener('dragover', onDragOver);
+  if (autoScrollFrame != null) {
+    cancelAnimationFrame(autoScrollFrame);
+    autoScrollFrame = null;
+  }
 });
 </script>
 
@@ -620,6 +720,7 @@ onUnmounted(() => {
       <div
         v-if="
           sessionStore.isStarted &&
+          !sessionStore.isOpenFloor &&
           !sessionStore.currentTurnParticipant &&
           sessionStore.participants.length > 0 &&
           !sessionStore.loading
@@ -638,9 +739,51 @@ onUnmounted(() => {
         </span>
       </div>
 
+      <!-- Open-floor banner — replaces the turn banner once every task is
+           pointed; anyone (who isn't skipped) can adjust placements. -->
+      <div
+        v-if="sessionStore.isOpenFloor"
+        class="flex items-center justify-between px-6 py-3"
+        :style="{
+          background: themeStore.isDark ? 'var(--sm-accent)' : 'var(--sm-ink)',
+          color: themeStore.isDark ? '#0a0a0a' : 'var(--sm-surface)',
+        }"
+      >
+        <div class="flex items-center gap-3 min-w-0">
+          <span
+            class="font-mono text-[10px] font-bold uppercase tracking-[0.12em] pr-3 flex-shrink-0"
+            :style="{
+              color: themeStore.isDark ? '#0a0a0a' : 'var(--sm-accent)',
+              borderRight: themeStore.isDark
+                ? '1px solid rgba(0,0,0,0.2)'
+                : '1px solid rgba(255,255,255,0.2)',
+            }"
+          >
+            ◆ Open floor
+          </span>
+          <span class="text-[13px] font-medium tracking-[-0.005em] truncate">
+            Anyone can adjust placements before ending the session.
+          </span>
+        </div>
+        <div v-if="isCreator" class="flex items-center gap-3.5 flex-shrink-0">
+          <button
+            @click="showEndSessionConfirm = true"
+            class="px-3.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.08em] cursor-pointer"
+            :style="{
+              borderRadius: '2px',
+              background: themeStore.isDark ? '#0a0a0a' : 'var(--sm-accent)',
+              color: themeStore.isDark ? 'var(--sm-accent)' : '#0a0a0a',
+              border: themeStore.isDark ? '1px solid #0a0a0a' : 'none',
+            }"
+          >
+            End session
+          </button>
+        </div>
+      </div>
+
       <!-- Turn Banner — Studio Mono inverse -->
       <div
-        v-if="sessionStore.currentTurnParticipant"
+        v-if="sessionStore.currentTurnParticipant && !sessionStore.isOpenFloor"
         class="flex items-center justify-between px-6 py-3"
         :style="{
           background: themeStore.isDark ? 'var(--sm-accent)' : 'var(--sm-ink)',
@@ -758,21 +901,22 @@ onUnmounted(() => {
       </div>
 
       <!-- Main Content -->
-      <div class="flex-1 overflow-hidden">
+      <div class="relative flex-1 overflow-hidden">
         <!-- Task Board Area -->
         <div
           ref="boardAreaRef"
-          class="board-no-scrollbar relative z-10 h-full overflow-y-auto overflow-x-hidden px-6 py-5"
+          class="board-no-scrollbar relative z-10 h-full overflow-y-auto overflow-x-auto py-5 pl-44 pr-[32rem]"
           :style="{ background: 'var(--sm-surface)' }"
         >
-          <div
-            :class="[
-              'flex min-h-full gap-3 w-fit',
-              isDragging && sessionStore.isMyTurn && sortedColumns.length > 0
-                ? 'min-w-full'
-                : 'mx-auto',
-            ]"
-          >
+          <!-- Columns keep their position whether or not a drag is in
+               progress — the new-column drop zones are zero-width overlays, so
+               starting a drag no longer shifts the column you're aiming at.
+               w-max lets the row grow to its content width, while min-w-full
+               keeps it at least full-width: justify-center then centers the
+               columns when they fit, but once they overflow the row matches
+               their width so there's no free space to center (and the leftmost
+               column stays reachable by scrolling). -->
+          <div class="flex min-h-full w-max min-w-full justify-center gap-5">
             <template
               v-if="
                 sessionStore.displayTasks &&
@@ -781,11 +925,7 @@ onUnmounted(() => {
             >
               <!-- No columns yet, show single drop zone when dragging -->
               <template
-                v-if="
-                  sortedColumns.length === 0 &&
-                  isDragging &&
-                  sessionStore.isMyTurn
-                "
+                v-if="sortedColumns.length === 0 && isDragging && canDrag"
               >
                 <CreateColumnDropZone
                   zone-id="new-column"
@@ -796,14 +936,8 @@ onUnmounted(() => {
               <template v-else>
                 <!-- Left drop zone -->
                 <CreateColumnDropZone
-                  v-if="
-                    sortedColumns.length > 0 &&
-                    isDragging &&
-                    sessionStore.isMyTurn
-                  "
+                  v-if="sortedColumns.length > 0 && isDragging && canDrag"
                   zone-id="new-column-left"
-                  :expand="true"
-                  indicator-position="right"
                   @task-dropped="handleDropZoneTask"
                 />
 
@@ -820,6 +954,7 @@ onUnmounted(() => {
                       :tags="sessionStore.tags"
                       :jira-base-url="jiraBaseUrl"
                       :drag-disabled="dragDisabled"
+                      :last-pointed-task-id="sessionStore.lastPointedTaskId"
                       :column-index="index"
                       :point-value="column.point_value"
                       @open-action-modal="handleOpenActionModal"
@@ -830,7 +965,7 @@ onUnmounted(() => {
                   <CreateColumnDropZone
                     v-if="
                       isDragging &&
-                      sessionStore.isMyTurn &&
+                      canDrag &&
                       sortedColumns.length > 1 &&
                       index < sortedColumns.length - 1
                     "
@@ -841,14 +976,8 @@ onUnmounted(() => {
 
                 <!-- Right drop zone -->
                 <CreateColumnDropZone
-                  v-if="
-                    sortedColumns.length > 0 &&
-                    isDragging &&
-                    sessionStore.isMyTurn
-                  "
+                  v-if="sortedColumns.length > 0 && isDragging && canDrag"
                   zone-id="new-column"
-                  :expand="true"
-                  indicator-position="left"
                   @task-dropped="handleDropZoneTask"
                 />
               </template>
@@ -869,105 +998,108 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+
+        <!-- Tasks Queue Panel — a floating overlay over the board canvas. The
+             board surface continues behind it, so there's always room to drop
+             a card past the last column to create a new one. -->
+        <aside
+          ref="queuePanelRef"
+          class="absolute bottom-4 right-4 top-4 z-20 flex w-72 flex-col overflow-hidden rounded-lg"
+          :style="{
+            background: 'var(--sm-card)',
+            border: '1px solid var(--sm-border)',
+            boxShadow: '0 12px 32px rgba(0, 0, 0, 0.35)',
+          }"
+        >
+          <!-- Queue header -->
+          <div
+            class="px-4 py-3.5"
+            :style="{ borderBottom: '1px solid var(--sm-border)' }"
+          >
+            <div class="flex items-baseline justify-between">
+              <span
+                class="text-[13px] font-bold tracking-[-0.01em]"
+                :style="{ color: 'var(--sm-ink)' }"
+                >Queue</span
+              >
+              <span
+                class="font-mono text-[11px]"
+                :style="{ color: 'var(--sm-muted)' }"
+                >[{{ unsortedTasks.length }}]</span
+              >
+            </div>
+            <div class="mt-1">
+              <span class="sm-label"
+                >Stack mode · {{ sessionStore.stackMode ? 'on' : 'off' }}</span
+              >
+            </div>
+          </div>
+
+          <!-- Queue body -->
+          <div class="flex-1 overflow-y-auto px-3 py-3">
+            <Column
+              column-id="unsorted"
+              title="Queue"
+              :tasks="unsortedTasks"
+              :tags="sessionStore.tags"
+              variant="tasks"
+              :jira-base-url="jiraBaseUrl"
+              :drag-disabled="dragDisabled"
+              :stack-mode="sessionStore.stackMode"
+              :top-task-id="topTaskId"
+              @open-action-modal="handleOpenActionModal"
+              @task-moved="handleTaskMoved"
+            />
+          </div>
+
+          <!-- Queue footer -->
+          <div
+            class="flex flex-col gap-1.5 px-3 py-3"
+            :style="{ borderTop: '1px solid var(--sm-border)' }"
+          >
+            <label
+              v-if="isCreator"
+              class="flex cursor-pointer items-center gap-2 px-1 py-1 font-mono text-[11px] font-semibold uppercase tracking-[0.04em]"
+              :style="{ color: 'var(--sm-ink)' }"
+            >
+              <input
+                type="checkbox"
+                :checked="sessionStore.stackMode"
+                @change="sessionStore.toggleStackMode()"
+                :style="{ accentColor: 'var(--sm-accent)' }"
+              />
+              Stack mode
+            </label>
+            <button
+              v-if="
+                sessionStore.stackMode &&
+                sessionStore.isMyTurn &&
+                sessionStore.topUnsortedTask
+              "
+              @click="sessionStore.skipTopTask()"
+              class="sm-btn sm-btn-outline-strong w-full"
+            >
+              Skip task
+            </button>
+            <button
+              @click="showCreateTask = true"
+              class="sm-btn w-full"
+              title="Add a new task manually"
+            >
+              + Create
+            </button>
+            <button
+              v-if="isCreator"
+              @click="dropZoneRef?.openFilePicker()"
+              class="sm-btn sm-btn-primary w-full"
+              title="Import tasks from a Jira or Linear CSV export"
+            >
+              Import CSV ↑
+            </button>
+          </div>
+        </aside>
       </div>
     </div>
-
-    <!-- Tasks Queue Panel — right sidebar -->
-    <aside
-      class="relative z-20 flex w-72 flex-col overflow-hidden"
-      :style="{
-        background: 'var(--sm-card)',
-        borderLeft: '1px solid var(--sm-border)',
-      }"
-    >
-      <!-- Queue header -->
-      <div
-        class="px-4 py-3.5"
-        :style="{ borderBottom: '1px solid var(--sm-border)' }"
-      >
-        <div class="flex items-baseline justify-between">
-          <span
-            class="text-[13px] font-bold tracking-[-0.01em]"
-            :style="{ color: 'var(--sm-ink)' }"
-            >Queue</span
-          >
-          <span
-            class="font-mono text-[11px]"
-            :style="{ color: 'var(--sm-muted)' }"
-            >[{{ unsortedTasks.length }}]</span
-          >
-        </div>
-        <div class="mt-1">
-          <span class="sm-label"
-            >Stack mode · {{ sessionStore.stackMode ? 'on' : 'off' }}</span
-          >
-        </div>
-      </div>
-
-      <!-- Queue body -->
-      <div class="flex-1 overflow-y-auto px-3 py-3">
-        <Column
-          column-id="unsorted"
-          title="Queue"
-          :tasks="unsortedTasks"
-          :tags="sessionStore.tags"
-          variant="tasks"
-          :jira-base-url="jiraBaseUrl"
-          :drag-disabled="dragDisabled"
-          :stack-mode="sessionStore.stackMode"
-          :top-task-id="topTaskId"
-          @open-action-modal="handleOpenActionModal"
-          @task-moved="handleTaskMoved"
-        />
-      </div>
-
-      <!-- Queue footer -->
-      <div
-        class="flex flex-col gap-1.5 px-3 py-3"
-        :style="{ borderTop: '1px solid var(--sm-border)' }"
-      >
-        <label
-          v-if="isCreator"
-          class="flex cursor-pointer items-center gap-2 px-1 py-1 font-mono text-[11px] font-semibold uppercase tracking-[0.04em]"
-          :style="{ color: 'var(--sm-ink)' }"
-        >
-          <input
-            type="checkbox"
-            :checked="sessionStore.stackMode"
-            @change="sessionStore.toggleStackMode()"
-            :style="{ accentColor: 'var(--sm-accent)' }"
-          />
-          Stack mode
-        </label>
-        <button
-          v-if="
-            sessionStore.stackMode &&
-            sessionStore.isMyTurn &&
-            sessionStore.topUnsortedTask
-          "
-          @click="sessionStore.skipTopTask()"
-          class="sm-btn sm-btn-outline-strong w-full"
-        >
-          Skip task
-        </button>
-        <button
-          v-if="isCreator"
-          @click="showCreateTask = true"
-          class="sm-btn w-full"
-          title="Add a new task manually"
-        >
-          + Create
-        </button>
-        <button
-          v-if="isCreator"
-          @click="dropZoneRef?.openFilePicker()"
-          class="sm-btn sm-btn-primary w-full"
-          title="Import tasks from a Jira or Linear CSV export"
-        >
-          Import CSV ↑
-        </button>
-      </div>
-    </aside>
 
     <!-- Create Task Modal -->
     <CreateTaskModal

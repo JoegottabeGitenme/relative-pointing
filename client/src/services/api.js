@@ -607,32 +607,6 @@ class APIService {
   }
 
   /**
-   * Update a column's point value
-   */
-  static async updateColumnPointValue(roomCode, columnId, userId, pointValue) {
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/sessions/${roomCode}/columns/${columnId}/point-value`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, pointValue }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to update point value');
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('Error updating column point value:', error);
-      throw error;
-    }
-  }
-
-  /**
    * Apply a scale preset to all columns
    */
   static async applyScale(roomCode, userId, scale) {

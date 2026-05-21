@@ -287,8 +287,23 @@ router.put('/:taskId', async (req, res) => {
       return res.status(400).json({ error: 'assignedBy is required' });
     }
 
-    // Turn enforcement: only current turn user can move tasks
+    // Open floor: once every task has been pointed (no unsorted tasks remain)
+    // in a running, not-yet-ended session, turn enforcement is dropped so any
+    // participant can adjust placements before the report is generated.
+    // Skipped users stay blocked by the check below.
+    const unsortedCount = await dbPromise.get(
+      `SELECT COUNT(*) as cnt FROM tasks WHERE session_id = ? AND column_id = 'unsorted'`,
+      [session.id]
+    );
+    const isOpenFloor =
+      !!session.started_at &&
+      !session.ended_at &&
+      (unsortedCount?.cnt || 0) === 0;
+
+    // Turn enforcement: only the current turn user can move tasks, unless the
+    // floor is open.
     if (
+      !isOpenFloor &&
       session.current_turn_user_id &&
       assignedBy !== session.current_turn_user_id
     ) {

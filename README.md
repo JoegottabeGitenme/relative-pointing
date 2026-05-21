@@ -13,9 +13,9 @@ A collaborative web application for Scrum teams to perform relative story pointi
 - **Tags and Comments** — Label tasks with color-coded tags; add comments for discussion
 - **Column Point Values** — Assign numeric point values to columns and apply scale presets (Fibonacci, T-shirt, etc.)
 - **Session Reports** — View a summary of pointed tasks after ending a session
-- **Participant Management** — Skip/unskip participants, auto-transfer ownership if creator goes offline
+- **Participant Management** — Skip/unskip participants, manually transfer session ownership
 - **Dark Mode** — Light and dark themes with system preference detection
-- **Presence Detection** — Auto-skip turns for offline participants, auto-transfer session ownership
+- **Presence Detection** — Offline participants are shown with a grayscale indicator in the participant list
 
 ## Tech Stack
 
@@ -66,7 +66,7 @@ relative-pointing/
 │   └── vite.config.js
 ├── server/
 │   ├── server.js           ← Express app
-│   ├── db.js               ← SQLite init, migrations, presence checker
+│   ├── db.js               ← SQLite init, migrations, session cleanup
 │   ├── schema.sql          ← Database schema
 │   └── routes/
 │       ├── sessions.js     ← Session, column, turn, and lifecycle endpoints
@@ -236,8 +236,6 @@ VITE_API_URL=http://localhost:5001/api
 # Server (auto-configured)
 PORT=5001                    # Backend port
 OFFLINE_THRESHOLD_S=15       # Seconds before participant marked offline
-AUTO_SKIP_TURN_S=30          # Seconds before auto-skipping offline turn holder
-AUTO_TRANSFER_OWNER_S=60     # Seconds before auto-transferring ownership
 ```
 
 ## Database
