@@ -21,38 +21,40 @@ test.describe('Join Session', () => {
     await page.goto('/');
 
     // Switch to join tab
-    await page.getByRole('button', { name: 'Join Session' }).click();
+    await page.getByText('↩ Join session').click();
 
-    await page.getByPlaceholder('Enter your name').fill('Joiner');
-    await page.getByPlaceholder('Enter room code').fill(roomCode);
+    await page.getByPlaceholder('Type a name…').fill('Joiner');
+    await page.getByPlaceholder('adjective-animal').fill(roomCode);
 
-    // Use the submit button inside the form (not the tab button)
+    // Use the submit button inside the form
     await page
       .locator('form')
-      .getByRole('button', { name: 'Join Session' })
+      .getByRole('button', { name: /Join session/i })
       .click();
 
     // Should navigate to the session page
     await expect(page).toHaveURL(`/session/${roomCode}`);
-    await expect(page.getByText('Room Code:')).toBeVisible();
+    await expect(page.getByText(`RP/${roomCode}`).first()).toBeVisible();
   });
 
   test('shows error on invalid room code', async ({ page }) => {
     await page.goto('/');
 
     // Switch to join tab
-    await page.getByRole('button', { name: 'Join Session' }).click();
+    await page.getByText('↩ Join session').click();
 
-    await page.getByPlaceholder('Enter your name').fill('Joiner');
-    await page.getByPlaceholder('Enter room code').fill('nonexistent-code');
+    await page.getByPlaceholder('Type a name…').fill('Joiner');
+    await page.getByPlaceholder('adjective-animal').fill('nonexistent-code');
 
     await page
       .locator('form')
-      .getByRole('button', { name: 'Join Session' })
+      .getByRole('button', { name: /Join session/i })
       .click();
 
-    // Error message should appear
-    await expect(page.locator('.text-red-600')).toBeVisible();
+    // Error message should appear (we render any error from the API in the form)
+    await expect(
+      page.getByText(/failed to join|not found|invalid/i)
+    ).toBeVisible();
   });
 
   test('join button is disabled without name and room code', async ({
@@ -60,11 +62,11 @@ test.describe('Join Session', () => {
   }) => {
     await page.goto('/');
 
-    await page.getByRole('button', { name: 'Join Session' }).click();
+    await page.getByText('↩ Join session').click();
 
     const joinButton = page
       .locator('form')
-      .getByRole('button', { name: 'Join Session' });
+      .getByRole('button', { name: /Join session/i });
     await expect(joinButton).toBeDisabled();
   });
 });

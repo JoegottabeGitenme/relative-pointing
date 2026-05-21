@@ -5,6 +5,12 @@ import { useSessionStore } from '../stores/session';
 import { useUserStore } from '../stores/user';
 import { useThemeStore } from '../stores/theme';
 import APIService from '../services/api';
+import { getIdenticonColor } from '../utils/identicon';
+import {
+  getCachedJiraBaseUrl,
+  setCachedJiraBaseUrl,
+} from '../utils/jiraUrlBuilder';
+import { setLastSession } from '../utils/sessionCache';
 import Column from './Column.vue';
 import CreateColumnDropZone from './CreateColumnDropZone.vue';
 import ParticipantList from './ParticipantList.vue';
@@ -34,6 +40,7 @@ const showJiraUrlInput = ref(false);
 const sidebarCollapsed = ref(false);
 const boardAreaRef = ref(null);
 const dropZoneRef = ref(null);
+const queuePanelRef = ref(null);
 
 // Auto-collapse sidebar on narrow viewports
 const COLLAPSE_BREAKPOINT = 1024;
@@ -60,9 +67,15 @@ const isCreator = computed(
   () => userStore.userId === sessionStore.session?.creator_id
 );
 
-const dragDisabled = computed(
-  () => !sessionStore.isMyTurn || sessionStore.isCurrentUserDisabled
+// A participant can drag when it's their turn, or when the floor is open
+// (every task pointed) — but never while they're skipped/disabled.
+const canDrag = computed(
+  () =>
+    (sessionStore.isMyTurn || sessionStore.isOpenFloor) &&
+    !sessionStore.isCurrentUserDisabled
 );
+
+const dragDisabled = computed(() => !canDrag.value);
 
 // Whether any participants are enabled (not in skipped list)
 const hasActiveParticipants = computed(() => {
@@ -73,21 +86,8 @@ const topTaskId = computed(() =>
   sessionStore.topUnsortedTask ? String(sessionStore.topUnsortedTask.id) : null
 );
 
-// Participant colors (same as ParticipantList)
-const COLORS = [
-  '#FF6B6B',
-  '#4ECDC4',
-  '#45B7D1',
-  '#FFA07A',
-  '#98D8C8',
-  '#F7DC6F',
-  '#BB8FCE',
-  '#85C1E2',
-];
-
 function getColorForUserId(userId) {
-  const idx = sessionStore.participants.findIndex((p) => p.user_id === userId);
-  return idx >= 0 ? COLORS[idx % COLORS.length] : '#4ECDC4';
+  return getIdenticonColor(userId);
 }
 
 const currentTurnColor = computed(() => {
@@ -169,6 +169,9 @@ onMounted(async () => {
   } catch {
     // Already a participant or other non-fatal error
   }
+  // Remember this session so the landing page can offer to rejoin after
+  // an accidental close / reload.
+  setLastSession(roomCode.value);
   sessionStore.startPolling(roomCode.value);
 });
 
@@ -187,8 +190,18 @@ const unsortedTasks = computed(() =>
   sessionStore.displayTasks.filter((t) => t.column_id === 'unsorted')
 );
 
+// Cards in a column show in the order they were dropped (oldest at top, most
+// recent at the bottom) rather than by task number / import order. assigned_at
+// is an ISO-ish UTC string, so a plain string compare is chronological.
 function tasksForColumn(columnId) {
-  return sessionStore.displayTasks.filter((t) => t.column_id === columnId);
+  return sessionStore.displayTasks
+    .filter((t) => t.column_id === columnId)
+    .sort((a, b) => {
+      const at = a.assigned_at || '';
+      const bt = b.assigned_at || '';
+      if (at === bt) return 0;
+      return at < bt ? -1 : 1;
+    });
 }
 
 // Complexity header scroll navigation
@@ -265,6 +278,7 @@ async function handleSaveJiraUrl() {
   try {
     await APIService.updateSessionJiraUrl(roomCode.value, jiraUrlInput.value);
     jiraBaseUrl.value = jiraUrlInput.value;
+    setCachedJiraBaseUrl(jiraUrlInput.value);
     showJiraUrlInput.value = false;
   } catch (err) {
     console.error('Error saving Jira URL:', err);
@@ -330,13 +344,91 @@ function handleLogout() {
   userStore.logout();
 }
 
-// Track drag state across the whole board
+// ---------------------------------------------------------------------------
+// Drag tracking + edge auto-scroll
+//
+// While a card is being dragged, scroll the board horizontally when the cursor
+// nears the left/right edge — otherwise the leftmost/rightmost drop zones are
+// unreachable once the columns overflow the viewport. The right boundary is the
+// queue panel's left edge (it floats over the board), not the viewport edge.
+//
+// This is the *only* auto-scroller: SortableJS's built-in scroll is disabled on
+// the draggables (:scroll="false") so they don't fight this one and double up.
+// We ease toward a target velocity rather than snapping scrollLeft directly, so
+// scrolling ramps up/down smoothly and you can still settle precisely near an
+// edge to drop instead of the board running away from you.
+// ---------------------------------------------------------------------------
+const EDGE_ZONE = 70; // px from the edge where auto-scroll begins
+const MAX_SCROLL_SPEED = 13; // px per frame at the very edge
+const VELOCITY_EASING = 0.16; // how fast current speed approaches the target
+let dragPointerX = null;
+let scrollVelocity = 0;
+let autoScrollFrame = null;
+
+function onDragOver(e) {
+  dragPointerX = e.clientX;
+}
+
+// Desired scroll speed for the current cursor position. Zero unless the cursor
+// is inside an edge zone *and* there's still room to scroll that way. Intensity
+// is squared so it eases in gently from the zone's inner border to full speed
+// only at the very edge.
+function targetScrollVelocity() {
+  const container = boardAreaRef.value;
+  if (!container || dragPointerX == null) return 0;
+
+  const rect = container.getBoundingClientRect();
+  const leftEdge = rect.left;
+  const queueRect = queuePanelRef.value?.getBoundingClientRect();
+  const rightEdge =
+    queueRect && queueRect.left < rect.right ? queueRect.left : rect.right;
+
+  const canScrollLeft = container.scrollLeft > 0;
+  const canScrollRight =
+    container.scrollLeft < container.scrollWidth - container.clientWidth - 1;
+
+  if (canScrollLeft && dragPointerX < leftEdge + EDGE_ZONE) {
+    const t = Math.min(1, (leftEdge + EDGE_ZONE - dragPointerX) / EDGE_ZONE);
+    return -MAX_SCROLL_SPEED * t * t;
+  }
+  if (canScrollRight && dragPointerX > rightEdge - EDGE_ZONE) {
+    const t = Math.min(1, (dragPointerX - (rightEdge - EDGE_ZONE)) / EDGE_ZONE);
+    return MAX_SCROLL_SPEED * t * t;
+  }
+  return 0;
+}
+
+function autoScrollStep() {
+  const container = boardAreaRef.value;
+  if (container) {
+    const target = targetScrollVelocity();
+    scrollVelocity += (target - scrollVelocity) * VELOCITY_EASING;
+    // Snap tiny residual velocity to zero so it comes to a clean rest.
+    if (Math.abs(scrollVelocity) < 0.15) scrollVelocity = 0;
+    if (scrollVelocity !== 0) container.scrollLeft += scrollVelocity;
+  }
+  autoScrollFrame = requestAnimationFrame(autoScrollStep);
+}
+
 function onDragStart() {
   isDragging.value = true;
+  dragPointerX = null;
+  scrollVelocity = 0;
+  document.addEventListener('dragover', onDragOver);
+  if (autoScrollFrame == null) {
+    autoScrollFrame = requestAnimationFrame(autoScrollStep);
+  }
 }
 
 function onDragEnd() {
   isDragging.value = false;
+  dragPointerX = null;
+  scrollVelocity = 0;
+  document.removeEventListener('dragover', onDragOver);
+  if (autoScrollFrame != null) {
+    cancelAnimationFrame(autoScrollFrame);
+    autoScrollFrame = null;
+  }
 }
 
 // Add/remove document-level listeners for drag detection
@@ -348,6 +440,11 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('dragstart', onDragStart);
   document.removeEventListener('dragend', onDragEnd);
+  document.removeEventListener('dragover', onDragOver);
+  if (autoScrollFrame != null) {
+    cancelAnimationFrame(autoScrollFrame);
+    autoScrollFrame = null;
+  }
 });
 </script>
 
@@ -356,12 +453,15 @@ onUnmounted(() => {
   <div
     v-if="sessionStore.loading"
     class="flex items-center justify-center min-h-screen"
+    :style="{ background: 'var(--sm-surface)' }"
   >
     <div class="text-center">
-      <div
-        class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-accent-cyan mx-auto mb-4"
-      ></div>
-      <p class="text-gray-600 dark:text-gray-400">Loading session...</p>
+      <p
+        class="font-mono text-[11px] uppercase tracking-[0.12em]"
+        :style="{ color: 'var(--sm-muted)' }"
+      >
+        Loading session…
+      </p>
     </div>
   </div>
 
@@ -369,22 +469,26 @@ onUnmounted(() => {
   <div
     v-else-if="!sessionStore.session"
     class="flex items-center justify-center min-h-screen"
+    :style="{ background: 'var(--sm-surface)' }"
   >
     <div class="text-center">
-      <p class="text-xl text-gray-600 dark:text-gray-400">Session not found</p>
+      <p class="text-xl" :style="{ color: 'var(--sm-text)' }">
+        Session not found
+      </p>
       <router-link
         to="/"
-        class="text-blue-600 dark:accent-text-primary hover:underline mt-4 inline-block"
+        class="mt-4 inline-block font-mono text-[11px] uppercase tracking-[0.08em] hover:underline"
+        :style="{ color: 'var(--sm-ink)' }"
+        >Create new session →</router-link
       >
-        Create New Session
-      </router-link>
     </div>
   </div>
 
   <!-- Main board -->
   <div
     v-else
-    class="h-screen bg-warm-100 dark:bg-dark-bg-900 flex transition-colors neon-grid-bg"
+    class="flex h-screen"
+    :style="{ background: 'var(--sm-surface)' }"
   >
     <!-- Christmas Snowflakes -->
     <Snowflakes v-if="themeStore.isChristmas" :count="50" />
@@ -412,133 +516,153 @@ onUnmounted(() => {
     <div class="flex-1 flex flex-col min-w-0">
       <!-- Header -->
       <header
-        class="bg-warm-50 dark:glass-panel-solid shadow-sm border-b border-warm-300 dark:border-white/10"
+        :style="{
+          background: 'var(--sm-card)',
+          borderBottom: '1px solid var(--sm-border)',
+        }"
       >
-        <div class="px-4 py-3">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-4">
-              <button
-                @click="router.push('/')"
-                class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-accent-cyan text-2xl transition-colors"
-                title="Go to home"
-              >
-                ←
-              </button>
-              <div>
-                <h1 class="text-2xl font-bold text-gray-800 dark:text-white">
-                  Relative Pointing <Version class="ml-2" />
-                </h1>
-                <p class="text-sm text-gray-600 dark:text-gray-400">
-                  Room Code:
-                  <span
-                    @click="handleCopyRoomCode"
-                    class="font-mono font-semibold cursor-pointer px-2 py-1 rounded hover:bg-blue-50 dark:hover:bg-white/5 transition-colors text-gray-800 dark:accent-text-primary"
-                    title="Click to copy"
-                  >
-                    {{ roomCode }}
-                    <template v-if="copied"> ✓</template>
-                  </span>
-                </p>
-                <p
-                  v-if="isCreator"
-                  class="text-sm text-gray-600 dark:text-gray-400 mt-1"
+        <div class="flex items-center justify-between px-6 py-3.5">
+          <div class="flex items-center gap-3.5 min-w-0">
+            <button
+              @click="router.push('/')"
+              class="flex h-7 w-7 flex-shrink-0 items-center justify-center font-mono text-[13px] font-bold"
+              :style="{
+                background: 'var(--sm-ink)',
+                color: 'var(--sm-surface)',
+              }"
+              title="Go to home"
+            >
+              ·
+            </button>
+            <div class="min-w-0">
+              <div class="flex items-baseline gap-2">
+                <h1
+                  class="text-base font-bold tracking-[-0.02em]"
+                  :style="{ color: 'var(--sm-ink)' }"
                 >
-                  Jira Base URL:
+                  Relative Pointing
+                </h1>
+                <Version />
+              </div>
+              <div class="mt-0.5 flex items-center gap-2.5 flex-wrap">
+                <span
+                  @click="handleCopyRoomCode"
+                  class="cursor-pointer font-mono text-[10.5px] font-bold uppercase tracking-[0.06em] hover:underline"
+                  :style="{ color: 'var(--sm-ink)' }"
+                  title="Click to copy"
+                  >RP/{{ roomCode }}<template v-if="copied"> ✓</template></span
+                >
+                <span class="text-[11px]" :style="{ color: 'var(--sm-subtle)' }"
+                  >·</span
+                >
+                <span class="sm-label">Refinement</span>
+                <template v-if="isCreator">
+                  <span
+                    class="text-[11px]"
+                    :style="{ color: 'var(--sm-subtle)' }"
+                    >·</span
+                  >
                   <template v-if="showJiraUrlInput">
-                    <span class="inline-flex gap-2">
-                      <input
-                        type="text"
-                        v-model="jiraUrlInput"
-                        placeholder="https://company.atlassian.net"
-                        class="px-2 py-1 border border-warm-400 dark:border-white/20 rounded text-sm dark:bg-dark-bg-700 dark:text-white focus:ring-1 focus:ring-accent-cyan dark:focus:border-accent-cyan/50"
-                        autofocus
-                      />
-                      <button
-                        @click="handleSaveJiraUrl"
-                        class="px-2 py-1 rounded text-sm transition-colors cursor-pointer btn-gradient-primary"
-                      >
-                        Save
-                      </button>
-                      <button
-                        @click="showJiraUrlInput = false"
-                        class="px-2 py-1 bg-warm-300 dark:bg-white/10 text-gray-800 dark:text-white rounded text-sm hover:bg-warm-400 dark:hover:bg-white/20 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </span>
-                  </template>
-                  <template v-else>
-                    <span
-                      @click="
-                        jiraUrlInput = jiraBaseUrl;
-                        showJiraUrlInput = true;
-                      "
-                      class="font-mono font-semibold cursor-pointer px-2 py-1 rounded hover:bg-blue-50 dark:hover:bg-white/5 transition-colors"
-                      title="Click to edit"
+                    <input
+                      type="text"
+                      v-model="jiraUrlInput"
+                      placeholder="https://company.atlassian.net"
+                      class="px-2 py-0.5 font-mono text-[10.5px]"
+                      :style="{
+                        background: 'var(--sm-card)',
+                        border: '1px solid var(--sm-border)',
+                        borderRadius: '2px',
+                        color: 'var(--sm-text)',
+                      }"
+                      autofocus
+                    />
+                    <button
+                      @click="handleSaveJiraUrl"
+                      class="sm-btn sm-btn-primary px-2 py-0.5 text-[10px]"
                     >
-                      {{ jiraBaseUrl || 'Not set' }}
-                      <template v-if="jiraBaseUrl"> ✎</template>
-                    </span>
+                      Save
+                    </button>
+                    <button
+                      @click="showJiraUrlInput = false"
+                      class="sm-btn px-2 py-0.5 text-[10px]"
+                    >
+                      Cancel
+                    </button>
                   </template>
-                </p>
+                  <span
+                    v-else
+                    @click="
+                      jiraUrlInput =
+                        jiraBaseUrl || getCachedJiraBaseUrl() || '';
+                      showJiraUrlInput = true;
+                    "
+                    class="cursor-pointer font-mono text-[10.5px] hover:underline"
+                    :style="{ color: 'var(--sm-muted)' }"
+                    title="Click to edit Jira base URL"
+                  >
+                    {{ jiraBaseUrl || 'set jira url'
+                    }}<template v-if="jiraBaseUrl"> ✎</template>
+                  </span>
+                </template>
+                <template v-else-if="jiraBaseUrl">
+                  <span
+                    class="text-[11px]"
+                    :style="{ color: 'var(--sm-subtle)' }"
+                    >·</span
+                  >
+                  <span
+                    class="font-mono text-[10.5px]"
+                    :style="{ color: 'var(--sm-muted)' }"
+                    >{{ jiraBaseUrl.replace(/^https?:\/\//, '') }}</span
+                  >
+                </template>
               </div>
             </div>
+          </div>
 
-            <div class="flex items-center gap-3">
-              <button
-                v-if="isCreator && !sessionStore.isStarted"
-                @click="handleStartSession"
-                :disabled="!hasActiveParticipants"
-                class="px-3 py-2 text-sm rounded-lg transition-colors font-medium btn-gradient-success"
-                :class="
-                  hasActiveParticipants
-                    ? 'cursor-pointer'
-                    : 'opacity-50 cursor-not-allowed'
-                "
-                :title="
-                  hasActiveParticipants
-                    ? 'Start the session and begin turn rotation'
-                    : 'Enable at least one participant first'
-                "
-              >
-                Start Session
-              </button>
-              <button
-                v-if="isCreator && sessionStore.isStarted"
-                @click="showEndSessionConfirm = true"
-                class="px-3 py-2 text-sm rounded-lg transition-colors font-medium cursor-pointer btn-gradient-danger"
-                title="End this session and generate a report"
-              >
-                End Session
-              </button>
-              <button
-                @click="themeStore.toggleChristmas()"
-                class="p-2 rounded-lg hover:bg-warm-200 dark:hover:bg-white/5 transition-colors"
-                :title="
-                  themeStore.isChristmas ? 'Disable snow' : 'Let it snow!'
-                "
-              >
-                {{ themeStore.isChristmas ? '🎄' : '❄️' }}
-              </button>
-              <button
-                @click="themeStore.toggleTheme()"
-                class="p-2 rounded-lg hover:bg-warm-200 dark:hover:bg-white/5 transition-colors"
-                :title="
-                  themeStore.isDark
-                    ? 'Switch to light mode'
-                    : 'Switch to dark mode'
-                "
-              >
-                {{ themeStore.isDark ? '☀️' : '🌙' }}
-              </button>
-              <button
-                @click="handleLogout"
-                class="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-warm-200 dark:hover:bg-white/5 rounded-lg transition-colors"
-                title="Logout"
-              >
-                Logout
-              </button>
-            </div>
+          <div class="flex items-center gap-1.5">
+            <button
+              v-if="isCreator && !sessionStore.isStarted"
+              @click="handleStartSession"
+              :disabled="!hasActiveParticipants"
+              class="sm-btn sm-btn-primary"
+              :title="
+                hasActiveParticipants
+                  ? 'Start the session and begin turn rotation'
+                  : 'Enable at least one participant first'
+              "
+            >
+              Start session
+            </button>
+            <button
+              v-if="isCreator && sessionStore.isStarted"
+              @click="showEndSessionConfirm = true"
+              class="sm-btn"
+              title="End this session and generate a report"
+            >
+              End session
+            </button>
+            <button
+              @click="themeStore.toggleChristmas()"
+              class="flex h-8 w-8 items-center justify-center text-[13px] sm-card"
+              :title="themeStore.isChristmas ? 'Disable snow' : 'Let it snow!'"
+            >
+              {{ themeStore.isChristmas ? '🎄' : '❄' }}
+            </button>
+            <button
+              @click="themeStore.toggleTheme()"
+              class="flex h-8 w-8 items-center justify-center text-[13px] sm-card"
+              :title="
+                themeStore.isDark
+                  ? 'Switch to light mode'
+                  : 'Switch to dark mode'
+              "
+            >
+              {{ themeStore.isDark ? '☀' : '☾' }}
+            </button>
+            <button @click="handleLogout" class="sm-btn" title="Logout">
+              Logout
+            </button>
           </div>
         </div>
       </header>
@@ -552,24 +676,24 @@ onUnmounted(() => {
           sessionStore.participants.length > 0 &&
           !sessionStore.loading
         "
-        class="px-4 py-3 flex items-center justify-between border-b"
-        :class="
-          hasActiveParticipants
-            ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800'
-            : 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800'
-        "
+        class="flex items-center justify-between px-6 py-3"
+        :style="{
+          background: hasActiveParticipants
+            ? 'var(--sm-card)'
+            : 'var(--sm-active-row)',
+          borderBottom: '1px solid var(--sm-border)',
+        }"
       >
         <span
-          :class="
-            hasActiveParticipants
-              ? 'font-semibold text-blue-800 dark:text-blue-200'
-              : 'font-semibold text-amber-800 dark:text-amber-200'
-          "
+          class="font-mono text-[11px] font-bold uppercase tracking-[0.08em]"
+          :style="{ color: 'var(--sm-ink)' }"
         >
           <template v-if="hasActiveParticipants">
-            Begin the session by clicking <strong>Start Session</strong>.
+            ◆ Ready — click Start session to begin
           </template>
-          <template v-else> Please enable a participant to begin. </template>
+          <template v-else>
+            ! Enable at least one participant to begin
+          </template>
         </span>
       </div>
       <!-- Participant: waiting for session to begin -->
@@ -580,130 +704,219 @@ onUnmounted(() => {
           sessionStore.participants.length > 0 &&
           !sessionStore.loading
         "
-        class="px-4 py-3 flex items-center justify-between border-b bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800"
+        class="flex items-center px-6 py-3"
+        :style="{
+          background: 'var(--sm-card)',
+          borderBottom: '1px solid var(--sm-border)',
+        }"
       >
-        <span class="font-semibold text-blue-800 dark:text-blue-200">
-          Waiting for the session to begin.
-        </span>
+        <span
+          class="font-mono text-[11px] font-bold uppercase tracking-[0.08em]"
+          :style="{ color: 'var(--sm-ink)' }"
+          >· Waiting for the session to begin</span
+        >
       </div>
       <!-- Post-start: all participants disabled -->
       <div
         v-if="
           sessionStore.isStarted &&
+          !sessionStore.isOpenFloor &&
           !sessionStore.currentTurnParticipant &&
           sessionStore.participants.length > 0 &&
           !sessionStore.loading
         "
-        class="px-4 py-3 flex items-center justify-between border-b bg-red-100 dark:bg-red-900/40 border-red-200 dark:border-red-800"
+        class="flex items-center px-6 py-3"
+        :style="{
+          background: '#fef2f2',
+          color: '#991b1b',
+          borderBottom: '1px solid #fca5a5',
+        }"
       >
-        <span class="font-semibold text-red-800 dark:text-red-200">
-          All participants are disabled. Enable a participant to continue.
+        <span
+          class="font-mono text-[11px] font-bold uppercase tracking-[0.08em]"
+        >
+          ! All participants disabled — enable one to continue
         </span>
       </div>
 
-      <!-- Turn Banner -->
+      <!-- Open-floor banner — replaces the turn banner once every task is
+           pointed; anyone (who isn't skipped) can adjust placements. -->
       <div
-        v-if="sessionStore.currentTurnParticipant"
-        :class="[
-          'px-5 py-4 flex items-center justify-between border-b',
-          sessionStore.isMyTurn ? 'turn-banner-active' : 'turn-banner-waiting',
-        ]"
+        v-if="sessionStore.isOpenFloor"
+        class="flex items-center justify-between px-6 py-3"
+        :style="{
+          background: themeStore.isDark ? 'var(--sm-accent)' : 'var(--sm-ink)',
+          color: themeStore.isDark ? '#0a0a0a' : 'var(--sm-surface)',
+        }"
       >
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 min-w-0">
           <span
-            :class="[
-              'font-bold text-lg',
-              sessionStore.isMyTurn
-                ? 'text-pink-800 dark:text-pink-300'
-                : 'text-yellow-800 dark:text-emerald-300',
-            ]"
+            class="font-mono text-[10px] font-bold uppercase tracking-[0.12em] pr-3 flex-shrink-0"
+            :style="{
+              color: themeStore.isDark ? '#0a0a0a' : 'var(--sm-accent)',
+              borderRight: themeStore.isDark
+                ? '1px solid rgba(0,0,0,0.2)'
+                : '1px solid rgba(255,255,255,0.2)',
+            }"
           >
-            <template v-if="sessionStore.isMyTurn"> It's your turn! </template>
+            ◆ Open floor
+          </span>
+          <span class="text-[13px] font-medium tracking-[-0.005em] truncate">
+            Anyone can adjust placements before ending the session.
+          </span>
+        </div>
+        <div v-if="isCreator" class="flex items-center gap-3.5 flex-shrink-0">
+          <button
+            @click="showEndSessionConfirm = true"
+            class="px-3.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.08em] cursor-pointer"
+            :style="{
+              borderRadius: '2px',
+              background: themeStore.isDark ? '#0a0a0a' : 'var(--sm-accent)',
+              color: themeStore.isDark ? 'var(--sm-accent)' : '#0a0a0a',
+              border: themeStore.isDark ? '1px solid #0a0a0a' : 'none',
+            }"
+          >
+            End session
+          </button>
+        </div>
+      </div>
+
+      <!-- Turn Banner — Studio Mono inverse -->
+      <div
+        v-if="sessionStore.currentTurnParticipant && !sessionStore.isOpenFloor"
+        class="flex items-center justify-between px-6 py-3"
+        :style="{
+          background: themeStore.isDark ? 'var(--sm-accent)' : 'var(--sm-ink)',
+          color: themeStore.isDark ? '#0a0a0a' : 'var(--sm-surface)',
+        }"
+      >
+        <div class="flex items-center gap-3 min-w-0">
+          <span
+            class="font-mono text-[10px] font-bold uppercase tracking-[0.12em] pr-3 flex-shrink-0"
+            :style="{
+              color: themeStore.isDark ? '#0a0a0a' : 'var(--sm-accent)',
+              borderRight: themeStore.isDark
+                ? '1px solid rgba(0,0,0,0.2)'
+                : '1px solid rgba(255,255,255,0.2)',
+            }"
+          >
+            {{ sessionStore.isMyTurn ? '◆ Your turn' : '· Waiting' }}
+          </span>
+          <span class="text-[13px] font-medium tracking-[-0.005em] truncate">
+            <template v-if="sessionStore.isMyTurn">
+              Drop a task into a column.
+            </template>
             <template v-else>
-              It's {{ sessionStore.currentTurnParticipant.user_name }}'s turn
+              {{ sessionStore.currentTurnParticipant.user_name }} is pointing.
             </template>
           </span>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-3.5 flex-shrink-0">
           <button
             v-if="sessionStore.isMyTurn"
             @click="sessionStore.endTurn()"
-            :class="[
-              'px-3 py-1.5 text-sm rounded-lg font-medium cursor-pointer turn-banner-btn',
-              'text-pink-800 dark:text-pink-300',
-            ]"
+            class="px-3.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.08em] cursor-pointer"
+            :style="{
+              borderRadius: '2px',
+              background: themeStore.isDark ? '#0a0a0a' : 'var(--sm-accent)',
+              color: themeStore.isDark ? 'var(--sm-accent)' : '#0a0a0a',
+              border: themeStore.isDark ? '1px solid #0a0a0a' : 'none',
+            }"
           >
-            End My Turn
+            End turn ↵
           </button>
           <button
             v-if="isCreator && !sessionStore.isMyTurn"
             @click="sessionStore.endTurn()"
-            :class="[
-              'px-3 py-1.5 text-sm rounded-lg font-medium cursor-pointer turn-banner-btn',
-              'text-yellow-800 dark:text-emerald-300',
-            ]"
+            class="px-3.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.08em] cursor-pointer"
+            :style="{
+              borderRadius: '2px',
+              background: 'transparent',
+              color: themeStore.isDark ? '#0a0a0a' : 'var(--sm-surface)',
+              border: themeStore.isDark
+                ? '1px solid rgba(0,0,0,0.4)'
+                : '1px solid rgba(255,255,255,0.4)',
+            }"
           >
-            Skip Turn
+            Skip turn
           </button>
         </div>
       </div>
 
-      <!-- Complexity Header (interactive scroll nav) -->
+      <!-- Complexity scale -->
       <div
-        class="bg-warm-50 dark:bg-dark-bg-800/60 border-b border-warm-300 dark:border-white/10 py-4"
+        class="flex items-center gap-4 px-6 py-3.5"
+        :style="{
+          background: 'var(--sm-card)',
+          borderBottom: '1px solid var(--sm-border)',
+        }"
       >
-        <div class="flex items-center justify-center gap-2 px-4">
-          <button
-            class="text-3xl text-gray-500 dark:text-accent-cyan/40 hover:text-gray-800 dark:hover:text-accent-cyan transition-colors cursor-pointer select-none"
-            title="Scroll left one column"
-            @click="scrollColumnLeft"
-          >
-            ◀
-          </button>
+        <button
+          class="sm-label cursor-pointer hover:underline"
+          title="Scroll left one column"
+          @click="scrollColumnLeft"
+        >
+          ← simpler
+        </button>
+        <div
+          class="relative flex-1 cursor-pointer"
+          style="height: 18px"
+          title="Click to scroll to relative position"
+          @click="handleComplexityBarClick"
+        >
           <div
-            class="flex-1 flex items-center gap-3 cursor-pointer"
-            title="Click to scroll to relative position"
-            @click="handleComplexityBarClick"
+            class="absolute left-0 right-0 top-2"
+            :style="{ height: '1px', background: 'var(--sm-border)' }"
+          ></div>
+          <div
+            v-for="(n, i) in [1, 2, 3, 5, 8]"
+            :key="n"
+            class="absolute top-0 flex flex-col items-center"
+            :style="{
+              left: `${(i / 4) * 100}%`,
+              transform: 'translateX(-50%)',
+            }"
           >
             <div
-              class="flex-1 h-1 bg-gradient-to-r from-gray-400 to-gray-300 dark:from-accent-cyan/30 dark:to-transparent rounded hover:h-1.5 transition-all"
+              :style="{
+                width: '1px',
+                height: '8px',
+                background: 'var(--sm-muted)',
+              }"
             ></div>
-            <div class="text-center whitespace-nowrap pointer-events-none">
-              <div
-                class="text-gray-600 dark:text-gray-300 font-semibold text-sm"
-              >
-                Complexity
-              </div>
-            </div>
-            <div
-              class="flex-1 h-1 bg-gradient-to-r from-gray-300 to-gray-400 dark:from-transparent dark:to-accent-cyan/30 rounded hover:h-1.5 transition-all"
-            ></div>
+            <span
+              class="mt-0.5 font-mono text-[10px]"
+              :style="{ color: 'var(--sm-muted)' }"
+              >{{ n }}</span
+            >
           </div>
-          <button
-            class="text-3xl text-gray-500 dark:text-accent-cyan/40 hover:text-gray-800 dark:hover:text-accent-cyan transition-colors cursor-pointer select-none"
-            title="Scroll right one column"
-            @click="scrollColumnRight"
-          >
-            ▶
-          </button>
         </div>
+        <button
+          class="sm-label cursor-pointer hover:underline"
+          title="Scroll right one column"
+          @click="scrollColumnRight"
+        >
+          more complex →
+        </button>
       </div>
 
       <!-- Main Content -->
-      <div class="flex-1 overflow-hidden">
+      <div class="relative flex-1 overflow-hidden">
         <!-- Task Board Area -->
         <div
           ref="boardAreaRef"
-          class="h-full overflow-x-hidden overflow-y-auto p-4 relative z-10 board-no-scrollbar"
+          class="board-no-scrollbar relative z-10 h-full overflow-y-auto overflow-x-auto py-5 pl-44 pr-[32rem]"
+          :style="{ background: 'var(--sm-surface)' }"
         >
-          <div
-            :class="[
-              'flex gap-4 min-h-full px-4 w-fit',
-              isDragging && sessionStore.isMyTurn && sortedColumns.length > 0
-                ? 'min-w-full'
-                : 'mx-auto',
-            ]"
-          >
+          <!-- Columns keep their position whether or not a drag is in
+               progress — the new-column drop zones are zero-width overlays, so
+               starting a drag no longer shifts the column you're aiming at.
+               w-max lets the row grow to its content width, while min-w-full
+               keeps it at least full-width: justify-center then centers the
+               columns when they fit, but once they overflow the row matches
+               their width so there's no free space to center (and the leftmost
+               column stays reachable by scrolling). -->
+          <div class="flex min-h-full w-max min-w-full justify-center gap-5">
             <template
               v-if="
                 sessionStore.displayTasks &&
@@ -712,11 +925,7 @@ onUnmounted(() => {
             >
               <!-- No columns yet, show single drop zone when dragging -->
               <template
-                v-if="
-                  sortedColumns.length === 0 &&
-                  isDragging &&
-                  sessionStore.isMyTurn
-                "
+                v-if="sortedColumns.length === 0 && isDragging && canDrag"
               >
                 <CreateColumnDropZone
                   zone-id="new-column"
@@ -727,14 +936,8 @@ onUnmounted(() => {
               <template v-else>
                 <!-- Left drop zone -->
                 <CreateColumnDropZone
-                  v-if="
-                    sortedColumns.length > 0 &&
-                    isDragging &&
-                    sessionStore.isMyTurn
-                  "
+                  v-if="sortedColumns.length > 0 && isDragging && canDrag"
                   zone-id="new-column-left"
-                  :expand="true"
-                  indicator-position="right"
                   @task-dropped="handleDropZoneTask"
                 />
 
@@ -751,6 +954,9 @@ onUnmounted(() => {
                       :tags="sessionStore.tags"
                       :jira-base-url="jiraBaseUrl"
                       :drag-disabled="dragDisabled"
+                      :last-pointed-task-id="sessionStore.lastPointedTaskId"
+                      :column-index="index"
+                      :point-value="column.point_value"
                       @open-action-modal="handleOpenActionModal"
                       @task-moved="handleTaskMoved"
                     />
@@ -759,7 +965,7 @@ onUnmounted(() => {
                   <CreateColumnDropZone
                     v-if="
                       isDragging &&
-                      sessionStore.isMyTurn &&
+                      canDrag &&
                       sortedColumns.length > 1 &&
                       index < sortedColumns.length - 1
                     "
@@ -770,14 +976,8 @@ onUnmounted(() => {
 
                 <!-- Right drop zone -->
                 <CreateColumnDropZone
-                  v-if="
-                    sortedColumns.length > 0 &&
-                    isDragging &&
-                    sessionStore.isMyTurn
-                  "
+                  v-if="sortedColumns.length > 0 && isDragging && canDrag"
                   zone-id="new-column"
-                  :expand="true"
-                  indicator-position="left"
                   @task-dropped="handleDropZoneTask"
                 />
               </template>
@@ -785,86 +985,119 @@ onUnmounted(() => {
 
             <div
               v-else
-              class="text-gray-400 dark:text-gray-500 text-center py-8 w-full"
+              class="w-full py-12 text-center"
+              :style="{ color: 'var(--sm-subtle)' }"
             >
-              <p class="mb-2">No tasks yet</p>
-              <p class="text-sm">
-                Upload a CSV or use the sample data to get started
+              <p class="mb-2 sm-label">No tasks yet</p>
+              <p
+                class="font-mono text-[11px]"
+                :style="{ color: 'var(--sm-muted)' }"
+              >
+                Upload a CSV or create a task to get started
               </p>
             </div>
           </div>
         </div>
-      </div>
-    </div>
 
-    <!-- Tasks Queue Panel - Right Sidebar (full height) -->
-    <div
-      class="w-64 bg-warm-50 dark:bg-dark-bg-800/60 border-l border-warm-300 dark:border-white/10 flex flex-col overflow-hidden relative z-20"
-    >
-      <div
-        class="p-4 border-b border-warm-300 dark:border-white/10 flex-1 overflow-y-auto"
-      >
-        <Column
-          column-id="unsorted"
-          title="Tasks"
-          :tasks="unsortedTasks"
-          :tags="sessionStore.tags"
-          variant="tasks"
-          :jira-base-url="jiraBaseUrl"
-          :drag-disabled="dragDisabled"
-          :stack-mode="sessionStore.stackMode"
-          :top-task-id="topTaskId"
-          @open-action-modal="handleOpenActionModal"
-          @task-moved="handleTaskMoved"
-        />
-      </div>
-      <!-- Sidebar Footer -->
-      <div
-        class="p-3 border-t border-warm-300 dark:border-white/10 bg-warm-100 dark:bg-dark-bg-700/50 space-y-2"
-      >
-        <!-- Stack Mode Toggle (creator only) -->
-        <label
-          v-if="isCreator"
-          class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
+        <!-- Tasks Queue Panel — a floating overlay over the board canvas. The
+             board surface continues behind it, so there's always room to drop
+             a card past the last column to create a new one. -->
+        <aside
+          ref="queuePanelRef"
+          class="absolute bottom-4 right-4 top-4 z-20 flex w-72 flex-col overflow-hidden rounded-lg"
+          :style="{
+            background: 'var(--sm-card)',
+            border: '1px solid var(--sm-border)',
+            boxShadow: '0 12px 32px rgba(0, 0, 0, 0.35)',
+          }"
         >
-          <input
-            type="checkbox"
-            :checked="sessionStore.stackMode"
-            @change="sessionStore.toggleStackMode()"
-            class="rounded border-warm-400 dark:border-white/20"
-          />
-          Stack mode (one task at a time)
-        </label>
-        <!-- Skip Task Button -->
-        <button
-          v-if="
-            sessionStore.stackMode &&
-            sessionStore.isMyTurn &&
-            sessionStore.topUnsortedTask
-          "
-          @click="sessionStore.skipTopTask()"
-          class="w-full px-3 py-2 rounded-lg transition-colors font-medium text-sm cursor-pointer btn-gradient-warning"
-        >
-          Skip Task
-        </button>
-        <!-- Create Task Button -->
-        <button
-          v-if="isCreator"
-          @click="showCreateTask = true"
-          class="w-full px-3 py-2 rounded-lg transition-colors font-medium text-sm cursor-pointer btn-gradient-success"
-          title="Add a new task manually"
-        >
-          + Create Task
-        </button>
-        <!-- Import CSV Button -->
-        <button
-          v-if="isCreator"
-          @click="dropZoneRef?.openFilePicker()"
-          class="w-full px-3 py-2 rounded-lg transition-colors font-medium text-sm cursor-pointer btn-gradient-primary"
-          title="Import tasks from a Jira or Linear CSV export"
-        >
-          Import CSV
-        </button>
+          <!-- Queue header -->
+          <div
+            class="px-4 py-3.5"
+            :style="{ borderBottom: '1px solid var(--sm-border)' }"
+          >
+            <div class="flex items-baseline justify-between">
+              <span
+                class="text-[13px] font-bold tracking-[-0.01em]"
+                :style="{ color: 'var(--sm-ink)' }"
+                >Queue</span
+              >
+              <span
+                class="font-mono text-[11px]"
+                :style="{ color: 'var(--sm-muted)' }"
+                >[{{ unsortedTasks.length }}]</span
+              >
+            </div>
+            <div class="mt-1">
+              <span class="sm-label"
+                >Stack mode · {{ sessionStore.stackMode ? 'on' : 'off' }}</span
+              >
+            </div>
+          </div>
+
+          <!-- Queue body -->
+          <div class="flex-1 overflow-y-auto px-3 py-3">
+            <Column
+              column-id="unsorted"
+              title="Queue"
+              :tasks="unsortedTasks"
+              :tags="sessionStore.tags"
+              variant="tasks"
+              :jira-base-url="jiraBaseUrl"
+              :drag-disabled="dragDisabled"
+              :stack-mode="sessionStore.stackMode"
+              :top-task-id="topTaskId"
+              @open-action-modal="handleOpenActionModal"
+              @task-moved="handleTaskMoved"
+            />
+          </div>
+
+          <!-- Queue footer -->
+          <div
+            class="flex flex-col gap-1.5 px-3 py-3"
+            :style="{ borderTop: '1px solid var(--sm-border)' }"
+          >
+            <label
+              v-if="isCreator"
+              class="flex cursor-pointer items-center gap-2 px-1 py-1 font-mono text-[11px] font-semibold uppercase tracking-[0.04em]"
+              :style="{ color: 'var(--sm-ink)' }"
+            >
+              <input
+                type="checkbox"
+                :checked="sessionStore.stackMode"
+                @change="sessionStore.toggleStackMode()"
+                :style="{ accentColor: 'var(--sm-accent)' }"
+              />
+              Stack mode
+            </label>
+            <button
+              v-if="
+                sessionStore.stackMode &&
+                sessionStore.isMyTurn &&
+                sessionStore.topUnsortedTask
+              "
+              @click="sessionStore.skipTopTask()"
+              class="sm-btn sm-btn-outline-strong w-full"
+            >
+              Skip task
+            </button>
+            <button
+              @click="showCreateTask = true"
+              class="sm-btn w-full"
+              title="Add a new task manually"
+            >
+              + Create
+            </button>
+            <button
+              v-if="isCreator"
+              @click="dropZoneRef?.openFilePicker()"
+              class="sm-btn sm-btn-primary w-full"
+              title="Import tasks from a Jira or Linear CSV export"
+            >
+              Import CSV ↑
+            </button>
+          </div>
+        </aside>
       </div>
     </div>
 
@@ -898,31 +1131,36 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="showEndSessionConfirm"
-        class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+        class="fixed inset-0 z-50 flex items-center justify-center"
+        :style="{
+          background: 'rgba(10,10,10,0.55)',
+          backdropFilter: 'blur(2px)',
+        }"
         @click.self="showEndSessionConfirm = false"
       >
-        <div
-          class="bg-warm-50 dark:bg-dark-bg-800 rounded-xl shadow-xl p-6 max-w-md w-full mx-4 border border-warm-300 dark:border-white/10 warm-glow-border"
-        >
-          <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-2">
-            End Session?
+        <div class="mx-4 w-full max-w-md p-6 sm-card sm-shadow-hard">
+          <div class="mb-4 flex items-baseline gap-2">
+            <span class="sm-label">Confirm</span>
+          </div>
+          <h3
+            class="mb-2 text-lg font-bold tracking-[-0.02em]"
+            :style="{ color: 'var(--sm-ink)' }"
+          >
+            End session?
           </h3>
-          <p class="text-gray-600 dark:text-gray-400 mb-6">
+          <p
+            class="mb-6 text-sm leading-[1.5]"
+            :style="{ color: 'var(--sm-muted)' }"
+          >
             This will end the pointing session for all participants and generate
             a report. This action cannot be undone.
           </p>
-          <div class="flex gap-3 justify-end">
-            <button
-              @click="showEndSessionConfirm = false"
-              class="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 bg-warm-200 dark:bg-white/10 rounded-lg hover:bg-warm-300 dark:hover:bg-white/20 transition-colors"
-            >
+          <div class="flex justify-end gap-2">
+            <button @click="showEndSessionConfirm = false" class="sm-btn">
               Cancel
             </button>
-            <button
-              @click="handleEndSession"
-              class="px-4 py-2 text-sm rounded-lg transition-colors font-medium cursor-pointer btn-gradient-danger"
-            >
-              End Session
+            <button @click="handleEndSession" class="sm-btn sm-btn-danger">
+              End session
             </button>
           </div>
         </div>

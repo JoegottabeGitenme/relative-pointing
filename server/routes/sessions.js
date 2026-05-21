@@ -7,6 +7,7 @@ const {
   touchParticipant,
   safeJsonParse,
   OFFLINE_THRESHOLD_S,
+  ENDED_SESSION_RETENTION_MS,
 } = require('../db');
 const { generateRoomCode } = require('../utils/roomCodeGenerator');
 const crypto = require('crypto');
@@ -911,6 +912,13 @@ router.get('/:roomCode/report', async (req, res) => {
       comments: commentsByTask[task.id] || [],
     }));
 
+    // The session is purged ENDED_SESSION_RETENTION_MS after it was ended;
+    // expose the absolute delete time so the report can warn viewers.
+    // ended_at is stored as a SQLite UTC timestamp (no zone suffix).
+    const deleteAt = new Date(
+      new Date(session.ended_at + 'Z').getTime() + ENDED_SESSION_RETENTION_MS
+    ).toISOString();
+
     res.json({
       session: {
         ...session,
@@ -920,47 +928,11 @@ router.get('/:roomCode/report', async (req, res) => {
       columns,
       tasks: processedTasks,
       tags,
+      deleteAt,
     });
   } catch (err) {
     console.error('Error fetching report:', err);
     res.status(500).json({ error: 'Failed to fetch report' });
-  }
-});
-
-// Update a column's point value
-router.patch('/:roomCode/columns/:columnId/point-value', async (req, res) => {
-  try {
-    const { roomCode, columnId } = req.params;
-    const { userId, pointValue } = req.body;
-
-    if (!userId || pointValue === undefined) {
-      return res.status(400).json({ error: 'userId and pointValue required' });
-    }
-
-    const session = await dbPromise.get(
-      `SELECT * FROM sessions WHERE LOWER(room_code) = LOWER(?)`,
-      [roomCode]
-    );
-
-    if (!session) {
-      return res.status(404).json({ error: 'Session not found' });
-    }
-
-    if (userId !== session.creator_id) {
-      return res
-        .status(403)
-        .json({ error: 'Only the session creator can update point values' });
-    }
-
-    await dbPromise.run(
-      `UPDATE columns SET point_value = ? WHERE id = ? AND session_id = ?`,
-      [pointValue, columnId, session.id]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Error updating column point value:', err);
-    res.status(500).json({ error: 'Failed to update point value' });
   }
 });
 

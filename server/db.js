@@ -5,13 +5,20 @@ const fs = require('fs');
 // Session inactivity timeout (15 minutes)
 const SESSION_TIMEOUT_MS = 15 * 60 * 1000;
 
-// Presence thresholds (configurable via env for testing)
-const OFFLINE_THRESHOLD_S = parseInt(process.env.OFFLINE_THRESHOLD_S, 10) || 15;
-const AUTO_SKIP_TURN_S = parseInt(process.env.AUTO_SKIP_TURN_S, 10) || 30;
-const AUTO_TRANSFER_OWNER_S =
-  parseInt(process.env.AUTO_TRANSFER_OWNER_S, 10) || 60;
+// Retention for sessions that have been explicitly ended: the report stays
+// available for this long after ended_at, then the session is purged.
+// Configurable via env (hours); defaults to 12.
+const ENDED_SESSION_RETENTION_HOURS =
+  parseFloat(process.env.ENDED_SESSION_RETENTION_HOURS) || 12;
+const ENDED_SESSION_RETENTION_MS =
+  ENDED_SESSION_RETENTION_HOURS * 60 * 60 * 1000;
 
-const DB_PATH = path.join(__dirname, 'app.db');
+// Offline threshold drives the grayscale "offline" badge in the UI
+// (configurable via env for testing). Turns are never auto-skipped or
+// auto-transferred — ownership and turn rotation stay fully user-driven.
+const OFFLINE_THRESHOLD_S = parseInt(process.env.OFFLINE_THRESHOLD_S, 10) || 15;
+
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'app.db');
 
 // Create database connection
 const db = new sqlite3.Database(DB_PATH, (err) => {
@@ -40,9 +47,8 @@ function initializeDatabase() {
     const executeNextStatement = () => {
       if (index >= statements.length) {
         console.log('Database schema initialized');
-        // Start the cleanup job and presence check
+        // Start the inactive-session cleanup job
         startSessionCleanup();
-        startPresenceCheck();
         return;
       }
 
@@ -264,23 +270,49 @@ function runMigrations(callback) {
   });
 }
 
-// Clean up expired sessions (inactive for more than SESSION_TIMEOUT_MS)
-function cleanupExpiredSessions() {
-  // Format cutoff time to match SQLite's CURRENT_TIMESTAMP format (YYYY-MM-DD HH:MM:SS)
-  const cutoffDate = new Date(Date.now() - SESSION_TIMEOUT_MS);
-  const cutoffTime = cutoffDate
+// Format a Date to match SQLite's CURRENT_TIMESTAMP format (YYYY-MM-DD HH:MM:SS)
+function toSqliteTimestamp(date) {
+  return date
     .toISOString()
     .replace('T', ' ')
     .replace(/\.\d{3}Z$/, '');
+}
+
+// Clean up sessions in two cases:
+//   1. Active-but-abandoned sessions inactive for more than SESSION_TIMEOUT_MS
+//      (never explicitly ended).
+//   2. Ended sessions older than ENDED_SESSION_RETENTION_MS — their report has
+//      been available long enough and is now purged.
+function cleanupExpiredSessions() {
+  const inactiveCutoff = toSqliteTimestamp(
+    new Date(Date.now() - SESSION_TIMEOUT_MS)
+  );
+  const endedCutoff = toSqliteTimestamp(
+    new Date(Date.now() - ENDED_SESSION_RETENTION_MS)
+  );
 
   db.run(
     `DELETE FROM sessions WHERE last_activity_at IS NOT NULL AND last_activity_at < ? AND ended_at IS NULL`,
-    [cutoffTime],
+    [inactiveCutoff],
     function (err) {
       if (err) {
-        console.error('Error cleaning up expired sessions:', err);
+        console.error('Error cleaning up inactive sessions:', err);
       } else if (this.changes > 0) {
-        console.log(`Cleaned up ${this.changes} expired session(s)`);
+        console.log(`Cleaned up ${this.changes} inactive session(s)`);
+      }
+    }
+  );
+
+  db.run(
+    `DELETE FROM sessions WHERE ended_at IS NOT NULL AND ended_at < ?`,
+    [endedCutoff],
+    function (err) {
+      if (err) {
+        console.error('Error cleaning up ended sessions:', err);
+      } else if (this.changes > 0) {
+        console.log(
+          `Cleaned up ${this.changes} ended session(s) past retention`
+        );
       }
     }
   );
@@ -350,151 +382,6 @@ function touchParticipant(sessionId, userId) {
   });
 }
 
-// Periodic presence check: auto-skip turns and auto-transfer ownership
-function startPresenceCheck() {
-  setInterval(async () => {
-    try {
-      const now = new Date();
-      const skipCutoff = new Date(now.getTime() - AUTO_SKIP_TURN_S * 1000)
-        .toISOString()
-        .replace('T', ' ')
-        .replace(/\.\d{3}Z$/, '');
-      const transferCutoff = new Date(
-        now.getTime() - AUTO_TRANSFER_OWNER_S * 1000
-      )
-        .toISOString()
-        .replace('T', ' ')
-        .replace(/\.\d{3}Z$/, '');
-      const onlineCutoff = new Date(now.getTime() - OFFLINE_THRESHOLD_S * 1000)
-        .toISOString()
-        .replace('T', ' ')
-        .replace(/\.\d{3}Z$/, '');
-
-      // Get recently active sessions only (active within the last hour)
-      const sessions = await dbPromise.all(
-        `SELECT * FROM sessions WHERE last_activity_at > datetime('now', '-1 hour')`
-      );
-
-      for (const session of sessions) {
-        const participants = await dbPromise.all(
-          `SELECT * FROM participants WHERE session_id = ? ORDER BY joined_at ASC`,
-          [session.id]
-        );
-
-        if (participants.length === 0) continue;
-
-        const skippedList = safeJsonParse(session.skipped_participants, []);
-
-        // --- Auto-skip turn if turn holder is offline (only for started sessions) ---
-        if (session.current_turn_user_id && session.started_at) {
-          const turnHolder = participants.find(
-            (p) => p.user_id === session.current_turn_user_id
-          );
-          if (
-            turnHolder &&
-            turnHolder.last_seen_at &&
-            turnHolder.last_seen_at < skipCutoff
-          ) {
-            // Turn holder has been offline for > AUTO_SKIP_TURN_S
-            const rotation = participants.filter(
-              (p) =>
-                !skippedList.includes(p.user_id) &&
-                p.last_seen_at &&
-                p.last_seen_at >= onlineCutoff
-            );
-
-            if (rotation.length > 0) {
-              const currentIndex = rotation.findIndex(
-                (p) => p.user_id === session.current_turn_user_id
-              );
-              const nextIndex =
-                currentIndex === -1 ? 0 : (currentIndex + 1) % rotation.length;
-              await dbPromise.run(
-                `UPDATE sessions SET current_turn_user_id = ?, turn_started_at = CURRENT_TIMESTAMP WHERE id = ?`,
-                [rotation[nextIndex].user_id, session.id]
-              );
-              console.log(
-                `[PRESENCE] Auto-skipped turn in session ${session.room_code}: ${turnHolder.user_name} -> ${rotation[nextIndex].user_name}`
-              );
-            } else {
-              // No online, non-skipped participants — clear the turn
-              await dbPromise.run(
-                `UPDATE sessions SET current_turn_user_id = NULL, turn_started_at = NULL WHERE id = ?`,
-                [session.id]
-              );
-              console.log(
-                `[PRESENCE] Cleared turn in session ${session.room_code} — no online active participants`
-              );
-            }
-          }
-        }
-
-        // Re-read session to get fresh state after potential turn changes above
-        const freshSession = await dbPromise.get(
-          `SELECT * FROM sessions WHERE id = ?`,
-          [session.id]
-        );
-
-        // If turn is null but session has started and there are online active participants, assign one
-        if (!freshSession.current_turn_user_id && freshSession.started_at) {
-          const onlineActive = participants.filter(
-            (p) =>
-              !skippedList.includes(p.user_id) &&
-              p.last_seen_at &&
-              p.last_seen_at >= onlineCutoff
-          );
-          if (onlineActive.length > 0) {
-            await dbPromise.run(
-              `UPDATE sessions SET current_turn_user_id = ?, turn_started_at = CURRENT_TIMESTAMP WHERE id = ?`,
-              [onlineActive[0].user_id, session.id]
-            );
-            console.log(
-              `[PRESENCE] Assigned turn in session ${session.room_code} to ${onlineActive[0].user_name} (was null)`
-            );
-          }
-        }
-
-        // --- Auto-transfer ownership if creator is offline ---
-        const creator = participants.find(
-          (p) => p.user_id === freshSession.creator_id
-        );
-        if (
-          creator &&
-          creator.last_seen_at &&
-          creator.last_seen_at < transferCutoff
-        ) {
-          // Creator has been offline for > AUTO_TRANSFER_OWNER_S
-          // Find the next eligible owner: earliest-joined, online, non-skipped participant
-          const candidates = participants.filter(
-            (p) =>
-              p.user_id !== freshSession.creator_id &&
-              !skippedList.includes(p.user_id) &&
-              p.last_seen_at &&
-              p.last_seen_at >= onlineCutoff
-          );
-
-          if (candidates.length > 0) {
-            const newOwner = candidates[0]; // earliest joined due to ORDER BY joined_at ASC
-            await dbPromise.run(
-              `UPDATE sessions SET creator_id = ?, creator_name = ? WHERE id = ?`,
-              [newOwner.user_id, newOwner.user_name, session.id]
-            );
-            console.log(
-              `[PRESENCE] Auto-transferred ownership in session ${session.room_code}: ${creator.user_name} -> ${newOwner.user_name}`
-            );
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[PRESENCE] Error in presence check:', err);
-    }
-  }, 10 * 1000); // Run every 10 seconds
-
-  console.log(
-    `Presence check started (offline: ${OFFLINE_THRESHOLD_S}s, auto-skip: ${AUTO_SKIP_TURN_S}s, auto-transfer: ${AUTO_TRANSFER_OWNER_S}s)`
-  );
-}
-
 // Helper functions for common operations
 const dbPromise = {
   run: (sql, params = []) => {
@@ -552,5 +439,6 @@ module.exports = {
   touchParticipant,
   safeJsonParse,
   SESSION_TIMEOUT_MS,
+  ENDED_SESSION_RETENTION_MS,
   OFFLINE_THRESHOLD_S,
 };

@@ -2,6 +2,10 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { parseCSV, validateCSV } from '../utils/csvParser';
 import APIService from '../services/api';
+import {
+  getCachedJiraBaseUrl,
+  setCachedJiraBaseUrl,
+} from '../utils/jiraUrlBuilder';
 import CsvImportModal from './CsvImportModal.vue';
 
 const props = defineProps({
@@ -53,6 +57,12 @@ async function processFile(file) {
       throw new Error('No valid tasks found in CSV file');
     }
 
+    // Fall back to the cached Jira base URL when the CSV doesn't carry one,
+    // so returning users don't have to re-enter it on every import.
+    if (!result.jiraBaseUrl) {
+      result.jiraBaseUrl = getCachedJiraBaseUrl();
+    }
+
     // Show confirmation modal instead of uploading immediately
     pendingImport.value = result;
   } catch (err) {
@@ -68,6 +78,7 @@ async function handleConfirmImport(selectedTasks, jiraBaseUrl) {
 
   try {
     await APIService.uploadTasks(props.roomCode, selectedTasks, jiraBaseUrl);
+    setCachedJiraBaseUrl(jiraBaseUrl);
     emit('tasksImported', selectedTasks.length);
     pendingImport.value = null;
   } catch (err) {

@@ -4,13 +4,13 @@ test.describe('Task Management', () => {
   test.beforeEach(async ({ page }) => {
     // Create a session and navigate to the task board
     await page.goto('/');
-    await page.getByPlaceholder('Enter your name').fill('Test User');
-    await page.getByRole('button', { name: 'Create New Session' }).click();
+    await page.getByPlaceholder('Type a name…').fill('Test User');
+    await page.getByRole('button', { name: /Create session/i }).click();
     await expect(page).toHaveURL(/\/session\/.+/);
   });
 
   test('create a task via modal', async ({ page }) => {
-    await page.getByRole('button', { name: '+ Create Task' }).click();
+    await page.getByRole('button', { name: '+ Create' }).click();
 
     // Modal should be visible
     await expect(page.getByText('Create New Task')).toBeVisible();
@@ -19,7 +19,7 @@ test.describe('Task Management', () => {
     await page.getByPlaceholder('e.g., PROJ-1').fill('TEST-1');
     await page.getByPlaceholder('Enter task title').fill('My new test task');
 
-    // Use the submit button inside the modal form (not the sidebar button)
+    // Use the submit button inside the modal form
     await page
       .locator('form')
       .getByRole('button', { name: 'Create Task' })
@@ -46,20 +46,18 @@ test.describe('Task Management', () => {
     await gearButton.click({ force: true });
 
     // Settings tab should be open with delete button
-    await expect(page.getByText('Danger Zone')).toBeVisible();
-    const deleteButton = page.getByRole('button', { name: 'Delete Task' });
+    await expect(page.getByText(/Danger zone/i)).toBeVisible();
+    const deleteButton = page.getByRole('button', { name: 'Delete task' });
     await expect(deleteButton).toBeVisible();
 
     // First click arms the confirmation
     await deleteButton.click();
     await expect(
-      page.getByRole('button', { name: 'Click again to confirm delete' })
+      page.getByRole('button', { name: 'Click again to confirm' })
     ).toBeVisible();
 
     // Second click confirms the delete
-    await page
-      .getByRole('button', { name: 'Click again to confirm delete' })
-      .click();
+    await page.getByRole('button', { name: 'Click again to confirm' }).click();
 
     // Task should be removed
     await expect(page.getByText('PROJ-123').first()).not.toBeVisible({
@@ -68,7 +66,7 @@ test.describe('Task Management', () => {
   });
 
   test('create task modal can be cancelled', async ({ page }) => {
-    await page.getByRole('button', { name: '+ Create Task' }).click();
+    await page.getByRole('button', { name: '+ Create' }).click();
     await expect(page.getByText('Create New Task')).toBeVisible();
 
     await page.getByRole('button', { name: 'Cancel' }).click();

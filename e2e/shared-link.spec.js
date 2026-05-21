@@ -22,12 +22,8 @@ test.describe('Shared Link Flow', () => {
     // Should redirect to /?join=roomCode
     await expect(page).toHaveURL(`/?join=${roomCode}`);
 
-    // Join tab should be active (blue background)
-    const joinTab = page.getByRole('button', { name: 'Join Session' }).first();
-    await expect(joinTab).toHaveClass(/bg-blue-600/);
-
-    // Room code input should be pre-filled
-    const roomCodeInput = page.getByPlaceholder('Enter room code');
+    // Room code input should be pre-filled (proves the join tab is active)
+    const roomCodeInput = page.getByPlaceholder('adjective-animal');
     await expect(roomCodeInput).toHaveValue(roomCode);
   });
 
@@ -38,15 +34,17 @@ test.describe('Shared Link Flow', () => {
     await expect(page).toHaveURL(`/?join=${roomCode}`);
 
     // Fill in name and submit
-    await page.getByPlaceholder('Enter your name').fill('SharedLinkUser');
+    await page.getByPlaceholder('Type a name…').fill('SharedLinkUser');
     await page
       .locator('form')
-      .getByRole('button', { name: 'Join Session' })
+      .getByRole('button', { name: /Join session/i })
       .click();
 
     // Should navigate to the session board
     await expect(page).toHaveURL(`/session/${roomCode}`);
-    await expect(page.getByText('Room Code:')).toBeVisible();
+    await expect(page.getByText(`RP/${roomCode}`).first()).toBeVisible(
+      POLL_TIMEOUT
+    );
   });
 
   test('authenticated user accesses session directly without redirect', async ({
@@ -71,7 +69,9 @@ test.describe('Shared Link Flow', () => {
 
     // Should NOT redirect — stays on the session page
     await expect(page).toHaveURL(`/session/${roomCode}`);
-    await expect(page.getByText('Room Code:')).toBeVisible(POLL_TIMEOUT);
+    await expect(page.getByText(`RP/${roomCode}`).first()).toBeVisible(
+      POLL_TIMEOUT
+    );
 
     await context.close();
   });

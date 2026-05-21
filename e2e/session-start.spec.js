@@ -109,32 +109,32 @@ test.describe('Session Start Flow', () => {
       'Creator'
     );
 
-    // Before start: should see "Start Session" button
+    // Before start: should see "Start session" button
     await expect(
-      creator.page.getByRole('button', { name: 'Start Session' })
+      creator.page.getByRole('button', { name: 'Start session' })
     ).toBeVisible(POLL_TIMEOUT);
 
-    // Should NOT see "End Session" button yet
+    // Should NOT see "End session" button yet
     await expect(
-      creator.page.getByRole('button', { name: 'End Session' })
+      creator.page.getByRole('button', { name: 'End session' })
     ).not.toBeVisible();
 
-    // Should see the pre-start banner (Alice is active, so the "begin" message shows)
+    // Should see the pre-start banner (Alice is active, so the "Ready" message shows)
+    await expect(creator.page.getByText(/Ready.*Start session/i)).toBeVisible(
+      POLL_TIMEOUT
+    );
+
+    // Click Start session
+    await creator.page.getByRole('button', { name: 'Start session' }).click();
+
+    // After start: should see "End session" button
     await expect(
-      creator.page.getByText('Begin the session by clicking')
+      creator.page.getByRole('button', { name: 'End session' })
     ).toBeVisible(POLL_TIMEOUT);
 
-    // Click Start Session
-    await creator.page.getByRole('button', { name: 'Start Session' }).click();
-
-    // After start: should see "End Session" button
+    // "Start session" button should be gone
     await expect(
-      creator.page.getByRole('button', { name: 'End Session' })
-    ).toBeVisible(POLL_TIMEOUT);
-
-    // "Start Session" button should be gone
-    await expect(
-      creator.page.getByRole('button', { name: 'Start Session' })
+      creator.page.getByRole('button', { name: 'Start session' })
     ).not.toBeVisible();
 
     await creator.context.close();
@@ -154,8 +154,8 @@ test.describe('Session Start Flow', () => {
     );
 
     // Before starting: no turn banner should be visible
-    await expect(creator.page.getByText("It's your turn!")).not.toBeVisible();
-    await expect(creator.page.getByText("It's Alice's turn")).not.toBeVisible();
+    await expect(creator.page.getByText('◆ Your turn')).not.toBeVisible();
+    await expect(creator.page.getByText(/Alice is pointing/)).not.toBeVisible();
 
     await creator.context.close();
   });

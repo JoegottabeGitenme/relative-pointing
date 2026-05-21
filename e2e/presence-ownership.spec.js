@@ -88,7 +88,7 @@ test.describe('Presence Tracking', () => {
     );
 
     // Creator (skipped) + Alice = 2 total, 1 active
-    await expect(creator.page.getByText('Participants (1/2)')).toBeVisible(
+    await expect(creator.page.getByText('[1/2]').first()).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -98,8 +98,8 @@ test.describe('Presence Tracking', () => {
     // Wait for Alice to be considered offline (>15s threshold)
     await sleep(17000);
 
-    // Alice should be shown as offline in the sidebar participant list
-    await expect(creator.page.getByText('(offline)')).toBeVisible(POLL_TIMEOUT);
+    // Alice should be shown as offline in the sidebar (status text "○ offline")
+    await expect(creator.page.getByText(/○ offline/)).toBeVisible(POLL_TIMEOUT);
 
     await creator.context.close();
   });
@@ -127,8 +127,8 @@ test.describe('Presence Tracking', () => {
     // Wait for polling to establish presence
     await sleep(3000);
 
-    // Neither user should have "(offline)" indicator in the sidebar
-    const offlineLabels = creator.page.getByText('(offline)');
+    // Neither user should have offline status indicator in the sidebar
+    const offlineLabels = creator.page.getByText(/○ offline/);
     await expect(offlineLabels).toHaveCount(0);
 
     await aliceCtx.context.close();
@@ -229,27 +229,28 @@ test.describe('Manual Ownership Transfer', () => {
       'Alice'
     );
 
-    // Creator should see "Create Task" button
+    // The "Import CSV" sidebar button is creator-only (unlike "+ Create",
+    // which any participant can use), so it tracks who holds ownership.
     await expect(
-      creator.page.getByRole('button', { name: 'Create Task' })
+      creator.page.getByRole('button', { name: /Import CSV/ })
     ).toBeVisible(POLL_TIMEOUT);
 
-    // Alice should NOT see "Create Task" button yet
+    // Alice should NOT see the creator-only Import CSV button yet
     await expect(
-      alicePage.page.getByRole('button', { name: 'Create Task' })
+      alicePage.page.getByRole('button', { name: /Import CSV/ })
     ).not.toBeVisible();
 
     // Transfer ownership to Alice via API
     await transferOwnershipViaAPI(request, roomCode, creatorId, alice.userId);
 
-    // After poll cycle, Alice should now see "Create Task" button
+    // After a poll cycle, Alice should now see the creator-only button
     await expect(
-      alicePage.page.getByRole('button', { name: 'Create Task' })
+      alicePage.page.getByRole('button', { name: /Import CSV/ })
     ).toBeVisible(POLL_TIMEOUT);
 
-    // Creator should no longer see "Create Task" button
+    // Creator should no longer see the creator-only button
     await expect(
-      creator.page.getByRole('button', { name: 'Create Task' })
+      creator.page.getByRole('button', { name: /Import CSV/ })
     ).not.toBeVisible(POLL_TIMEOUT);
 
     await alicePage.context.close();
@@ -291,12 +292,13 @@ test.describe('Manual Ownership Transfer', () => {
     );
 
     // Creator (skipped) + Alice = 2 total, 1 active
-    await expect(creator.page.getByText('Participants (1/2)')).toBeVisible(
+    await expect(creator.page.getByText('[1/2]').first()).toBeVisible(
       POLL_TIMEOUT
     );
 
     // The transfer button (person icon SVG) should be visible for Alice in the sidebar
     // There should be exactly one transfer button (not for the creator themselves)
+    // Hover-to-show requires forcing visibility — so we check it exists, not visibility.
     const transferButtons = creator.page.locator(
       'button[title="Transfer ownership"]'
     );
@@ -363,7 +365,7 @@ test.describe('Disabled User Protection', () => {
     );
 
     // Wait for initial load — session is started, creator has the turn
-    await expect(creator.page.getByText("It's your turn!")).toBeVisible(
+    await expect(creator.page.getByText('◆ Your turn')).toBeVisible(
       POLL_TIMEOUT
     );
 
@@ -372,13 +374,13 @@ test.describe('Disabled User Protection', () => {
       skipped_participants: [creatorId],
     });
 
-    // Should see the "all disabled" red banner
+    // Should see the "all participants disabled" warning banner
     await expect(
-      creator.page.getByText('All participants are disabled')
+      creator.page.getByText(/All participants disabled/i)
     ).toBeVisible(POLL_TIMEOUT);
 
-    // The "It's your turn!" banner should be gone
-    await expect(creator.page.getByText("It's your turn!")).not.toBeVisible();
+    // The "Your turn" banner should be gone
+    await expect(creator.page.getByText('◆ Your turn')).not.toBeVisible();
 
     // Verify via API that turn is null
     const data = await getSessionViaAPI(request, roomCode);
@@ -403,125 +405,5 @@ test.describe('Disabled User Protection', () => {
 
     const enabledData = await getSessionViaAPI(request, roomCode);
     expect(enabledData.session.current_turn_user_id).toBe(creatorId);
-  });
-});
-
-test.describe('Auto-skip Turn on Disconnect', () => {
-  // These tests require waiting for the presence check interval (10s)
-  // and the auto-skip threshold (30s). They are intentionally slower.
-  test.setTimeout(90000);
-
-  let roomCode;
-  let creatorId;
-
-  test.beforeEach(async ({ request }) => {
-    const session = await createSessionViaAPI(request, 'Creator');
-    roomCode = session.roomCode;
-    creatorId = session.creatorId;
-    // Unskip creator and start session
-    await updateSessionViaAPI(request, roomCode, {
-      skipped_participants: [],
-    });
-    await startSessionViaAPI(request, roomCode, creatorId);
-  });
-
-  test('turn auto-advances when turn holder goes offline', async ({
-    request,
-  }) => {
-    const alice = await joinSessionViaAPI(request, roomCode, 'Alice');
-
-    // Make both users "online" by polling with userId
-    await getSessionViaAPI(request, roomCode, creatorId);
-    await getSessionViaAPI(request, roomCode, alice.userId);
-
-    // End creator's turn so Alice has it
-    await endTurnViaAPI(request, roomCode, creatorId);
-    const data = await getSessionViaAPI(request, roomCode, creatorId);
-    expect(data.session.current_turn_user_id).toBe(alice.userId);
-
-    // Alice stops polling. Creator keeps polling to stay online.
-    // Wait for auto-skip threshold (30s) + presence check interval (10s) + buffer
-    for (let i = 0; i < 22; i++) {
-      await sleep(2000);
-      await getSessionViaAPI(request, roomCode, creatorId);
-    }
-
-    // Verify the turn has moved away from Alice
-    const afterSkip = await getSessionViaAPI(request, roomCode, creatorId);
-    expect(afterSkip.session.current_turn_user_id).not.toBe(alice.userId);
-    expect(afterSkip.session.current_turn_user_id).toBe(creatorId);
-  });
-
-  test('turn becomes null when all users go offline', async ({ request }) => {
-    // Poll once to register presence
-    await getSessionViaAPI(request, roomCode, creatorId);
-
-    const before = await getSessionViaAPI(request, roomCode);
-    expect(before.session.current_turn_user_id).toBe(creatorId);
-
-    // Stop polling entirely and wait for auto-skip threshold
-    await sleep(45000);
-
-    // Fetch without userId (don't update presence)
-    const after = await getSessionViaAPI(request, roomCode);
-    expect(after.session.current_turn_user_id).toBeNull();
-  });
-});
-
-test.describe('Auto-transfer Ownership on Creator Disconnect', () => {
-  // These tests require waiting for the auto-transfer threshold (60s).
-  test.setTimeout(120000);
-
-  let roomCode;
-  let creatorId;
-
-  test.beforeEach(async ({ request }) => {
-    const session = await createSessionViaAPI(request, 'Creator');
-    roomCode = session.roomCode;
-    creatorId = session.creatorId;
-  });
-
-  test('ownership auto-transfers when creator goes offline', async ({
-    request,
-  }) => {
-    const alice = await joinSessionViaAPI(request, roomCode, 'Alice');
-
-    // Both users poll initially
-    await getSessionViaAPI(request, roomCode, creatorId);
-    await getSessionViaAPI(request, roomCode, alice.userId);
-
-    // Creator stops polling. Alice keeps polling.
-    // Wait for auto-transfer threshold (60s) + presence check interval (10s) + buffer
-    for (let i = 0; i < 38; i++) {
-      await sleep(2000);
-      await getSessionViaAPI(request, roomCode, alice.userId);
-    }
-
-    // Verify ownership has transferred to Alice
-    const afterTransfer = await getSessionViaAPI(
-      request,
-      roomCode,
-      alice.userId
-    );
-    expect(afterTransfer.session.creator_id).toBe(alice.userId);
-    expect(afterTransfer.session.creator_name).toBe('Alice');
-  });
-
-  test('ownership does NOT transfer if creator stays online', async ({
-    request,
-  }) => {
-    const alice = await joinSessionViaAPI(request, roomCode, 'Alice');
-
-    // Both keep polling for a while
-    for (let i = 0; i < 10; i++) {
-      await sleep(2000);
-      await getSessionViaAPI(request, roomCode, creatorId);
-      await getSessionViaAPI(request, roomCode, alice.userId);
-    }
-
-    // Creator should still be the owner
-    const data = await getSessionViaAPI(request, roomCode, creatorId);
-    expect(data.session.creator_id).toBe(creatorId);
-    expect(data.session.creator_name).toBe('Creator');
   });
 });

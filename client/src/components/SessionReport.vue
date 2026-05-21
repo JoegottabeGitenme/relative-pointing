@@ -1,9 +1,12 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useThemeStore } from '../stores/theme';
 import APIService from '../services/api';
+import { buildJiraUrl, detectJiraBaseUrl } from '../utils/jiraUrlBuilder';
+import { getFibonacciLabel } from '../utils/fibonacci';
 import Version from './Version.vue';
+import Identicon from './Identicon.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -14,6 +17,8 @@ const loading = ref(true);
 const error = ref(null);
 
 const session = ref(null);
+const deleteAt = ref(null);
+const now = ref(Date.now());
 const participants = ref([]);
 const columns = ref([]);
 const tasks = ref([]);
@@ -22,6 +27,35 @@ const selectedScale = ref('fibonacci');
 
 const userId = localStorage.getItem('userId');
 const isCreator = computed(() => userId === session.value?.creator_id);
+
+// Time left, in ms, until the server purges this ended session and its report.
+const msUntilDeletion = computed(() => {
+  if (!deleteAt.value) return null;
+  return new Date(deleteAt.value).getTime() - now.value;
+});
+
+// Live countdown string, ticking every second so it's visibly updating.
+const deletionCountdown = computed(() => {
+  if (msUntilDeletion.value === null) return '';
+  const msLeft = msUntilDeletion.value;
+  if (msLeft <= 0) return 'any moment now';
+  const totalSeconds = Math.floor(msLeft / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  if (hours > 0) return `${hours}h ${pad(minutes)}m ${pad(seconds)}s`;
+  if (minutes > 0) return `${minutes}m ${pad(seconds)}s`;
+  return `${seconds}s`;
+});
+
+// Switch the banner to a red/urgent style within the final hour.
+const deletionUrgent = computed(
+  () =>
+    msUntilDeletion.value !== null && msUntilDeletion.value <= 60 * 60 * 1000
+);
+
+let countdownTimer = null;
 
 const SCALE_OPTIONS = [
   { value: 'fibonacci', label: 'Fibonacci (1, 2, 3, 5, 8, 13...)' },
@@ -44,9 +78,84 @@ function tasksForColumn(columnId) {
   return tasks.value.filter((t) => t.column_id === columnId);
 }
 
+// Columns are stored with the placeholder name "New Column"; the board shows a
+// Fibonacci position label instead (1, 2, 3, 5, 8…). Mirror that here so the
+// report doesn't read "New Column" next to every bucket. A name the user
+// actually customised is respected.
+function columnDisplayName(col, index) {
+  const trimmed = (col.name || '').trim();
+  if (!trimmed || trimmed.toLowerCase() === 'new column') {
+    return getFibonacciLabel(index);
+  }
+  return trimmed;
+}
+
+// ---------------------------------------------------------------------------
+// Hide toggles — per-task and per-column. Hidden tasks are dimmed (opacity-40)
+// and excluded from totals and the CSV export, letting the host curate the
+// final report without deleting anything.
+// ---------------------------------------------------------------------------
+const hiddenTaskIds = ref(new Set());
+const hiddenColumnIds = ref(new Set());
+
+function toggleTaskHidden(taskId) {
+  const id = String(taskId);
+  const next = new Set(hiddenTaskIds.value);
+  next.has(id) ? next.delete(id) : next.add(id);
+  hiddenTaskIds.value = next;
+}
+
+function toggleColumnHidden(columnId) {
+  const next = new Set(hiddenColumnIds.value);
+  next.has(columnId) ? next.delete(columnId) : next.add(columnId);
+  hiddenColumnIds.value = next;
+}
+
+function isColumnHidden(columnId) {
+  return hiddenColumnIds.value.has(columnId);
+}
+
+function isTaskHidden(task) {
+  return (
+    hiddenTaskIds.value.has(String(task.id)) ||
+    hiddenColumnIds.value.has(task.column_id)
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Jira deep links — prefer the session's configured base URL, otherwise fall
+// back to guessing it from the issue key. Returns null when neither yields a
+// valid URL, in which case the template renders plain text.
+// ---------------------------------------------------------------------------
+function jiraUrlFor(task) {
+  const key = task.display_id || task.jira_key || task.id;
+  const base = session.value?.jira_base_url ?? detectJiraBaseUrl(key);
+  return buildJiraUrl(base, key);
+}
+
+function commentsFor(task) {
+  return task.comments || [];
+}
+
 function getTagForTask(task) {
   if (!task.tag_id) return null;
   return tags.value.find((t) => t.id === task.tag_id);
+}
+
+const TAG_COLOR_VARS = {
+  yellow: 'var(--sm-tag-yellow)',
+  green: 'var(--sm-tag-green)',
+  red: 'var(--sm-tag-red)',
+  blue: 'var(--sm-tag-blue)',
+  purple: 'var(--sm-tag-purple)',
+  orange: 'var(--sm-tag-orange)',
+  pink: 'var(--sm-tag-pink)',
+  cyan: 'var(--sm-tag-cyan)',
+};
+
+function tagColorVar(tag) {
+  if (!tag) return null;
+  return TAG_COLOR_VARS[tag.color] || 'var(--sm-tag-blue)';
 }
 
 const sessionDuration = computed(() => {
@@ -54,31 +163,93 @@ const sessionDuration = computed(() => {
   const start = new Date(session.value.created_at + 'Z');
   const end = new Date(session.value.ended_at + 'Z');
   const diffMs = end - start;
-  const minutes = Math.floor(diffMs / 60000);
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins}m`;
+  const totalSeconds = Math.floor(diffMs / 1000);
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 });
 
 const totalPoints = computed(() => {
   let total = 0;
   for (const col of sortedColumns.value) {
-    const count = tasksForColumn(col.id).length;
+    if (isColumnHidden(col.id)) continue;
+    const count = tasksForColumn(col.id).filter((t) => !isTaskHidden(t)).length;
     total += (col.point_value || 0) * count;
   }
   return total;
 });
 
 const tasksPointed = computed(() => {
-  return tasks.value.filter((t) => t.column_id && t.column_id !== 'unsorted')
-    .length;
+  return tasks.value.filter(
+    (t) => t.column_id && t.column_id !== 'unsorted' && !isTaskHidden(t)
+  ).length;
 });
+
+const maxColumnCount = computed(() => {
+  let max = 0;
+  for (const col of sortedColumns.value) {
+    max = Math.max(max, tasksForColumn(col.id).length);
+  }
+  return Math.max(max, 1);
+});
+
+// Sortable pointed-tasks table
+const sortKey = ref('points');
+const sortDir = ref('desc');
+
+const pointedRows = computed(() => {
+  const rows = [];
+  sortedColumns.value.forEach((col, index) => {
+    for (const t of tasksForColumn(col.id)) {
+      rows.push({
+        ...t,
+        columnName: columnDisplayName(col, index),
+        points: col.point_value || 0,
+      });
+    }
+  });
+  rows.sort((a, b) => {
+    // Hidden tasks always sink to the bottom, regardless of the active sort.
+    const aHidden = isTaskHidden(a) ? 1 : 0;
+    const bHidden = isTaskHidden(b) ? 1 : 0;
+    if (aHidden !== bHidden) return aHidden - bHidden;
+
+    let av, bv;
+    if (sortKey.value === 'id') {
+      av = String(a.display_id || a.id);
+      bv = String(b.display_id || b.id);
+    } else if (sortKey.value === 'title') {
+      av = (a.title || '').toLowerCase();
+      bv = (b.title || '').toLowerCase();
+    } else if (sortKey.value === 'column') {
+      av = a.points;
+      bv = b.points;
+    } else {
+      av = a.points;
+      bv = b.points;
+    }
+    if (av < bv) return sortDir.value === 'asc' ? -1 : 1;
+    if (av > bv) return sortDir.value === 'asc' ? 1 : -1;
+    return 0;
+  });
+  return rows;
+});
+
+function handleSort(key) {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortKey.value = key;
+    sortDir.value = key === 'id' || key === 'title' ? 'asc' : 'desc';
+  }
+}
 
 async function fetchReport() {
   try {
     const data = await APIService.getReport(roomCode.value);
     session.value = data.session;
+    deleteAt.value = data.deleteAt || null;
     participants.value = data.participants || [];
     columns.value = data.columns || [];
     tasks.value = data.tasks || [];
@@ -106,602 +277,705 @@ async function handleApplyScale() {
   }
 }
 
-async function handlePointValueChange(columnId, value) {
-  const numValue = parseFloat(value);
-  if (isNaN(numValue)) return;
-
-  // Optimistic update
-  columns.value = columns.value.map((c) =>
-    c.id === columnId ? { ...c, point_value: numValue } : c
-  );
-
-  try {
-    await APIService.updateColumnPointValue(
-      roomCode.value,
-      columnId,
-      userId,
-      numValue
-    );
-  } catch (err) {
-    console.error('Error updating point value:', err);
-    await fetchReport();
-  }
+function exportCSV() {
+  const header = ['ID', 'Title', 'Column', 'Points', 'Tag'];
+  const rows = pointedRows.value
+    .filter((r) => !isTaskHidden(r))
+    .map((r) => [
+      r.display_id || r.id,
+      r.title || '',
+      r.columnName,
+      r.points,
+      getTagForTask(r)?.name || '',
+    ]);
+  const csv = [header, ...rows]
+    .map((row) =>
+      row
+        .map((cell) => {
+          const s = String(cell ?? '');
+          if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+            return '"' + s.replace(/"/g, '""') + '"';
+          }
+          return s;
+        })
+        .join(',')
+    )
+    .join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${roomCode.value}-report.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
-const TAG_COLORS = {
-  yellow: {
-    bg: 'bg-yellow-100 dark:bg-yellow-900/40',
-    text: 'text-yellow-800 dark:text-yellow-200',
-  },
-  green: {
-    bg: 'bg-green-100 dark:bg-green-900/40',
-    text: 'text-green-800 dark:text-green-200',
-  },
-  red: {
-    bg: 'bg-red-100 dark:bg-red-900/40',
-    text: 'text-red-800 dark:text-red-200',
-  },
-  blue: {
-    bg: 'bg-blue-100 dark:bg-blue-900/40',
-    text: 'text-blue-800 dark:text-blue-200',
-  },
-  purple: {
-    bg: 'bg-purple-100 dark:bg-purple-900/40',
-    text: 'text-purple-800 dark:text-purple-200',
-  },
-  pink: {
-    bg: 'bg-pink-100 dark:bg-pink-900/40',
-    text: 'text-pink-800 dark:text-pink-200',
-  },
-  orange: {
-    bg: 'bg-orange-100 dark:bg-orange-900/40',
-    text: 'text-orange-800 dark:text-orange-200',
-  },
-};
-
-function tagClasses(tag) {
-  const colors = TAG_COLORS[tag.color] || TAG_COLORS.blue;
-  return `${colors.bg} ${colors.text}`;
-}
-
-// --- Hide toggles (client-side only) ---
-const hiddenTaskIds = ref(new Set());
-const hiddenColumnIds = ref(new Set());
-
-function toggleTaskHidden(taskId) {
-  const next = new Set(hiddenTaskIds.value);
-  if (next.has(taskId)) {
-    next.delete(taskId);
-  } else {
-    next.add(taskId);
-  }
-  hiddenTaskIds.value = next;
-}
-
-function toggleColumnHidden(columnId) {
-  const next = new Set(hiddenColumnIds.value);
-  if (next.has(columnId)) {
-    next.delete(columnId);
-  } else {
-    next.add(columnId);
-  }
-  hiddenColumnIds.value = next;
-}
-
-const displaySortedColumns = computed(() => {
-  const sorted = [...columns.value].sort(
-    (a, b) => (a.column_order || 0) - (b.column_order || 0)
-  );
-  const visible = sorted.filter((c) => !hiddenColumnIds.value.has(c.id));
-  const hidden = sorted.filter((c) => hiddenColumnIds.value.has(c.id));
-  return [...visible, ...hidden];
+onMounted(() => {
+  fetchReport();
+  // Tick every second so the countdown is visibly active.
+  countdownTimer = setInterval(() => {
+    now.value = Date.now();
+  }, 1000);
 });
 
-function displayTasksForColumn(columnId) {
-  const all = tasks.value.filter((t) => t.column_id === columnId);
-  const visible = all.filter((t) => !hiddenTaskIds.value.has(t.id));
-  const hidden = all.filter((t) => hiddenTaskIds.value.has(t.id));
-  return [...visible, ...hidden];
-}
-
-const displayUnsortedTasks = computed(() => {
-  const all = tasks.value.filter(
-    (t) => t.column_id === 'unsorted' || !t.column_id
-  );
-  const visible = all.filter((t) => !hiddenTaskIds.value.has(t.id));
-  const hidden = all.filter((t) => hiddenTaskIds.value.has(t.id));
-  return [...visible, ...hidden];
+onUnmounted(() => {
+  if (countdownTimer) clearInterval(countdownTimer);
 });
-
-onMounted(fetchReport);
 </script>
 
 <template>
   <!-- Loading -->
   <div
     v-if="loading"
-    class="flex items-center justify-center min-h-screen bg-warm-100 dark:bg-dark-bg-900"
+    class="flex min-h-screen items-center justify-center"
+    :style="{ background: 'var(--sm-surface)' }"
   >
-    <div class="text-center">
-      <div
-        class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-accent-cyan mx-auto mb-4"
-      ></div>
-      <p class="text-gray-600 dark:text-gray-400">Loading report...</p>
-    </div>
+    <span class="sm-label">Loading report…</span>
   </div>
 
   <!-- Error -->
   <div
     v-else-if="error"
-    class="flex items-center justify-center min-h-screen bg-warm-100 dark:bg-dark-bg-900"
+    class="flex min-h-screen items-center justify-center"
+    :style="{ background: 'var(--sm-surface)' }"
   >
     <div class="text-center">
-      <p class="text-xl text-red-600 dark:text-red-400 mb-4">{{ error }}</p>
+      <p class="mb-4 text-base" :style="{ color: '#ef4444' }">{{ error }}</p>
       <router-link
         to="/"
-        class="text-blue-600 dark:accent-text-primary hover:underline"
+        class="font-mono text-[11px] uppercase tracking-[0.08em] hover:underline"
+        :style="{ color: 'var(--sm-ink)' }"
+        >Go home →</router-link
       >
-        Go Home
-      </router-link>
     </div>
   </div>
 
   <!-- Report -->
   <div
     v-else
-    class="min-h-screen bg-warm-100 dark:bg-dark-bg-900 transition-colors"
+    class="flex min-h-screen flex-col"
+    :style="{ background: 'var(--sm-surface)' }"
   >
     <!-- Header -->
     <header
-      class="bg-warm-50 dark:glass-panel-solid shadow-sm border-b border-warm-300 dark:border-white/10"
+      class="flex items-center justify-between px-8 py-5"
+      :style="{
+        background: 'var(--sm-card)',
+        borderBottom: '1px solid var(--sm-border)',
+      }"
     >
-      <div class="max-w-7xl mx-auto px-4 py-4">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-4">
-            <button
-              @click="router.push('/')"
-              class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-accent-cyan text-2xl transition-colors"
-              title="Go to home"
+      <div class="flex items-center gap-3.5 min-w-0">
+        <button
+          @click="router.push('/')"
+          class="flex h-7 w-7 flex-shrink-0 items-center justify-center font-mono text-[13px] font-bold"
+          :style="{
+            background: 'var(--sm-ink)',
+            color: 'var(--sm-surface)',
+          }"
+          title="Go to home"
+        >
+          ·
+        </button>
+        <div class="min-w-0">
+          <div class="flex items-baseline gap-2">
+            <span class="sm-label">Session report</span>
+            <span class="text-[10.5px]" :style="{ color: 'var(--sm-subtle)' }"
+              >·</span
             >
-              ←
-            </button>
-            <div>
-              <h1 class="text-2xl font-bold text-gray-800 dark:text-white">
-                Session Report <Version class="ml-2" />
-              </h1>
-              <p class="text-sm text-gray-600 dark:text-gray-400">
-                Room:
-                <span
-                  class="font-mono font-semibold dark:accent-text-primary"
-                  >{{ roomCode }}</span
-                >
-                <span v-if="sessionDuration" class="ml-3">
-                  Duration: {{ sessionDuration }}
-                </span>
-              </p>
-            </div>
-          </div>
-          <div class="flex items-center gap-3">
-            <button
-              @click="themeStore.toggleTheme()"
-              class="p-2 rounded-lg hover:bg-warm-200 dark:hover:bg-white/5 transition-colors"
+            <span
+              class="font-mono text-[10.5px]"
+              :style="{ color: 'var(--sm-muted)' }"
+              >RP/{{ roomCode }}</span
             >
-              {{ themeStore.isDark ? '☀️' : '🌙' }}
-            </button>
+            <Version />
           </div>
+          <h1
+            class="mt-1 text-[22px] font-bold tracking-[-0.02em]"
+            :style="{ color: 'var(--sm-ink)' }"
+          >
+            Refinement
+          </h1>
         </div>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <button @click="exportCSV" class="sm-btn sm-btn-primary">
+          Export CSV ↓
+        </button>
+        <button
+          @click="themeStore.toggleTheme()"
+          class="flex h-8 w-8 items-center justify-center text-[13px] sm-card"
+        >
+          {{ themeStore.isDark ? '☀' : '☾' }}
+        </button>
       </div>
     </header>
 
-    <div class="max-w-7xl mx-auto px-4 py-6 space-y-6">
-      <!-- Scale Controls (leader only) -->
-      <div
-        v-if="isCreator"
-        class="bg-warm-50 dark:bg-dark-bg-800/60 rounded-xl border border-warm-300 dark:border-white/10 p-4"
-      >
-        <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-          Point Scale
-        </h2>
-        <div class="flex items-center gap-3 flex-wrap">
-          <select
-            v-model="selectedScale"
-            class="px-3 py-2 border border-warm-400 dark:border-white/20 rounded-lg text-sm bg-warm-50 dark:bg-dark-bg-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-blue-500 dark:focus:ring-accent-cyan"
-          >
-            <option
-              v-for="option in SCALE_OPTIONS"
-              :key="option.value"
-              :value="option.value"
-            >
-              {{ option.label }}
-            </option>
-          </select>
-          <button
-            @click="handleApplyScale"
-            class="px-4 py-2 text-sm rounded-lg transition-colors font-medium cursor-pointer btn-gradient-primary"
-          >
-            Apply Scale
-          </button>
-        </div>
-      </div>
-
-      <!-- Columns Grid -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div
-          v-for="column in displaySortedColumns"
-          :key="column.id"
-          :class="[
-            'bg-warm-50 dark:bg-dark-bg-800/60 rounded-xl border border-warm-300 dark:border-white/10 overflow-hidden transition-opacity',
-            hiddenColumnIds.has(column.id) ? 'opacity-40' : '',
-          ]"
+    <!-- Retention warning: this ended session is purged after the retention
+         window; the banner turns red in the final hour. -->
+    <div
+      v-if="deletionCountdown"
+      class="flex items-center gap-2 px-8 py-2.5 text-[12px]"
+      :style="{
+        background: deletionUrgent
+          ? 'rgba(239, 68, 68, 0.14)'
+          : 'var(--sm-warn-bg, rgba(234, 179, 8, 0.12))',
+        borderBottom: deletionUrgent
+          ? '1px solid rgba(239, 68, 68, 0.5)'
+          : '1px solid var(--sm-border)',
+        color: deletionUrgent ? '#ef4444' : 'var(--sm-muted)',
+      }"
+    >
+      <span>⚠</span>
+      <span>
+        This report will be permanently deleted in
+        <strong
+          :style="{ color: deletionUrgent ? '#ef4444' : 'var(--sm-ink)' }"
+          >{{ deletionCountdown }}</strong
         >
-          <!-- Column Header -->
-          <div
-            class="px-4 py-3 border-b border-warm-300 dark:border-white/10 bg-warm-100 dark:bg-dark-bg-700/50"
-          >
-            <div class="flex items-center justify-between">
-              <h3 class="font-semibold text-gray-800 dark:text-white">
-                {{ column.name }}
-              </h3>
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ tasksForColumn(column.id).length }} task{{
-                    tasksForColumn(column.id).length !== 1 ? 's' : ''
-                  }}
-                </span>
-                <button
-                  @click="toggleColumnHidden(column.id)"
-                  class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-                  :title="
-                    hiddenColumnIds.has(column.id)
-                      ? 'Show column'
-                      : 'Hide column'
-                  "
+        — export the CSV to keep a copy.
+      </span>
+    </div>
+
+    <!-- Body -->
+    <div class="flex-1 overflow-y-auto p-7 lg:p-8">
+      <div class="flex flex-col gap-6 lg:flex-row">
+        <!-- Left: stats + distribution + participants -->
+        <div class="flex w-full flex-col gap-5 lg:w-[420px] lg:flex-shrink-0">
+          <!-- Stat cards -->
+          <div class="grid grid-cols-2 gap-3">
+            <div class="px-5 py-5 sm-card">
+              <span class="sm-label">Tasks</span>
+              <div class="mt-2 flex items-baseline gap-1.5">
+                <span
+                  class="font-mono text-[38px] font-bold leading-none tracking-[-0.03em]"
+                  :style="{ color: 'var(--sm-ink)' }"
+                  >{{ tasksPointed }}</span
                 >
-                  <svg
-                    v-if="!hiddenColumnIds.has(column.id)"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke-width="1.5"
-                    stroke="currentColor"
-                    class="w-4 h-4"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
-                    />
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
-                    />
-                  </svg>
-                  <svg
-                    v-else
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke-width="1.5"
-                    stroke="currentColor"
-                    class="w-4 h-4"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"
-                    />
-                  </svg>
-                </button>
+                <span
+                  class="font-mono text-[13px] font-semibold uppercase tracking-[0.04em]"
+                  :style="{ color: 'var(--sm-muted)' }"
+                  >pointed</span
+                >
               </div>
             </div>
-            <div class="mt-2 flex items-center gap-2">
-              <label class="text-xs text-gray-500 dark:text-gray-400">
-                Points:
-              </label>
-              <input
-                v-if="isCreator"
-                type="number"
-                :value="column.point_value"
-                @change="handlePointValueChange(column.id, $event.target.value)"
-                class="w-20 px-2 py-1 text-sm border border-warm-400 dark:border-white/20 rounded bg-warm-50 dark:bg-dark-bg-700 text-gray-800 dark:text-white focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent-cyan"
-                step="any"
-              />
+            <div
+              class="px-5 py-5"
+              :style="{
+                background: 'var(--sm-accent)',
+                border: '1px solid var(--sm-accent)',
+                borderRadius: '2px',
+              }"
+            >
               <span
-                v-else
-                class="text-sm font-semibold text-blue-600 dark:accent-text-primary"
+                class="font-mono text-[10px] font-semibold uppercase tracking-[0.1em]"
+                :style="{ color: '#0a0a0a', opacity: 0.7 }"
+                >Total</span
               >
-                {{ column.point_value ?? '—' }}
-              </span>
+              <div class="mt-2 flex items-baseline gap-1.5">
+                <span
+                  class="font-mono text-[38px] font-bold leading-none tracking-[-0.03em]"
+                  :style="{ color: '#0a0a0a' }"
+                  >{{ totalPoints }}</span
+                >
+                <span
+                  class="font-mono text-[13px] font-semibold uppercase tracking-[0.04em]"
+                  :style="{ color: '#0a0a0a', opacity: 0.6 }"
+                  >pts</span
+                >
+              </div>
+            </div>
+            <div class="px-5 py-5 sm-card">
+              <span class="sm-label">Duration</span>
+              <div class="mt-2 flex items-baseline gap-1.5">
+                <span
+                  class="font-mono text-[28px] font-bold leading-none tracking-[-0.03em]"
+                  :style="{ color: 'var(--sm-ink)' }"
+                  >{{ sessionDuration || '—' }}</span
+                >
+              </div>
+            </div>
+            <div class="px-5 py-5 sm-card">
+              <span class="sm-label">Voters</span>
+              <div class="mt-2 flex items-baseline gap-1.5">
+                <span
+                  class="font-mono text-[38px] font-bold leading-none tracking-[-0.03em]"
+                  :style="{ color: 'var(--sm-ink)' }"
+                  >{{ participants.length }}</span
+                >
+                <span
+                  class="font-mono text-[13px] font-semibold uppercase tracking-[0.04em]"
+                  :style="{ color: 'var(--sm-muted)' }"
+                  >in room</span
+                >
+              </div>
             </div>
           </div>
 
-          <!-- Tasks in Column -->
-          <div class="p-3 space-y-2">
-            <div
-              v-for="task in displayTasksForColumn(column.id)"
-              :key="task.id"
-              :class="[
-                'p-3 bg-warm-100 dark:bg-dark-bg-700/50 rounded-lg border border-warm-200 dark:border-white/5 transition-opacity',
-                hiddenTaskIds.has(task.id) ? 'opacity-40' : '',
-              ]"
-            >
-              <div class="flex items-start justify-between gap-2">
-                <div class="min-w-0 flex-1">
-                  <p
-                    class="text-sm font-medium text-gray-800 dark:text-white truncate"
+          <!-- Scale picker (creator only) -->
+          <div v-if="isCreator" class="px-5 py-5 sm-card">
+            <span class="sm-label">Point scale</span>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+              <select
+                v-model="selectedScale"
+                class="sm-input flex-1 text-[12.5px]"
+                style="padding: 8px 10px"
+              >
+                <option
+                  v-for="option in SCALE_OPTIONS"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </option>
+              </select>
+              <button @click="handleApplyScale" class="sm-btn">Apply</button>
+            </div>
+          </div>
+
+          <!-- Distribution -->
+          <div class="px-5 py-5 sm-card">
+            <div class="mb-4 flex items-baseline justify-between">
+              <span class="sm-label">Distribution</span>
+              <span
+                class="font-mono text-[10px]"
+                :style="{ color: 'var(--sm-subtle)' }"
+                >by column</span
+              >
+            </div>
+            <div class="flex flex-col gap-3.5">
+              <div
+                v-for="col in sortedColumns"
+                :key="col.id"
+                class="transition-opacity"
+                :style="{ opacity: isColumnHidden(col.id) ? 0.4 : 1 }"
+              >
+                <div class="mb-1.5 flex items-baseline justify-between">
+                  <div class="flex items-center gap-2">
+                    <button
+                      class="flex-shrink-0 self-center"
+                      :style="{ color: 'var(--sm-subtle)' }"
+                      :title="
+                        isColumnHidden(col.id)
+                          ? 'Show column in report'
+                          : 'Hide column from report'
+                      "
+                      @click="toggleColumnHidden(col.id)"
+                    >
+                      <svg
+                        v-if="!isColumnHidden(col.id)"
+                        class="h-3.5 w-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                        />
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                        />
+                      </svg>
+                      <svg
+                        v-else
+                        class="h-3.5 w-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"
+                        />
+                      </svg>
+                    </button>
+                    <span
+                      v-if="col.point_value !== null && col.point_value !== ''"
+                      class="font-mono text-[13px] font-bold px-2 py-0.5"
+                      :style="{
+                        background: 'var(--sm-accent)',
+                        color: '#0a0a0a',
+                        borderRadius: '2px',
+                      }"
+                      >{{ col.point_value }} pts</span
+                    >
+                    <span
+                      v-else
+                      class="text-[15px] font-bold"
+                      :style="{ color: 'var(--sm-text)' }"
+                      >—</span
+                    >
+                  </div>
+                  <span
+                    class="font-mono text-[12.5px]"
+                    :style="{ color: 'var(--sm-muted)' }"
+                    >{{ tasksForColumn(col.id).length }}
+                    {{
+                      tasksForColumn(col.id).length === 1 ? 'task' : 'tasks'
+                    }}</span
                   >
-                    {{ task.title }}
-                  </p>
-                  <p
-                    v-if="task.jira_key"
-                    class="text-xs text-gray-500 dark:text-gray-400 font-mono"
-                  >
-                    {{ task.jira_key }}
-                  </p>
+                </div>
+                <div
+                  class="h-2"
+                  :style="{
+                    background: 'var(--sm-card-alt)',
+                    border: '1px solid var(--sm-border)',
+                    borderRadius: '1px',
+                  }"
+                >
+                  <div
+                    class="h-full transition-[width] duration-300"
+                    :style="{
+                      width: `${(tasksForColumn(col.id).length / maxColumnCount) * 100}%`,
+                      background: 'var(--sm-ink)',
+                    }"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Participants -->
+          <div class="px-5 py-5 sm-card">
+            <span class="sm-label">Participants</span>
+            <div class="mt-3.5 flex flex-col gap-2.5">
+              <div
+                v-for="(p, i) in participants"
+                :key="p.id"
+                class="flex items-center gap-2.5"
+              >
+                <span
+                  class="w-4 font-mono text-[10px]"
+                  :style="{ color: 'var(--sm-subtle)' }"
+                  >{{ String(i + 1).padStart(2, '0') }}</span
+                >
+                <div
+                  class="flex-shrink-0 overflow-hidden"
+                  :style="{
+                    width: '22px',
+                    height: '22px',
+                    borderRadius: '2px',
+                  }"
+                >
+                  <Identicon :seed="p.user_id" class="block h-full w-full" />
                 </div>
                 <span
-                  v-if="getTagForTask(task)"
-                  :class="[
-                    'text-xs px-2 py-0.5 rounded-full whitespace-nowrap',
-                    tagClasses(getTagForTask(task)),
-                  ]"
+                  class="flex-1 text-[13px] font-medium tracking-[-0.005em]"
+                  :style="{ color: 'var(--sm-text)' }"
+                  >{{ p.user_name }}</span
                 >
-                  {{ getTagForTask(task).name }}
-                </span>
+                <span
+                  v-if="p.user_id === session?.creator_id"
+                  class="font-mono text-[9.5px] font-bold uppercase tracking-[0.08em]"
+                  :style="{ color: 'var(--sm-muted)' }"
+                  >★ host</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: pointed-tasks table -->
+        <div
+          class="flex flex-1 flex-col overflow-hidden sm-card"
+          style="min-width: 0"
+        >
+          <div
+            class="flex items-baseline justify-between px-5 py-4"
+            :style="{ borderBottom: '1px solid var(--sm-border)' }"
+          >
+            <span class="sm-label">Pointed tasks</span>
+            <span
+              class="font-mono text-[11px]"
+              :style="{ color: 'var(--sm-muted)' }"
+              >{{ pointedRows.length }} rows</span
+            >
+          </div>
+
+          <!-- Sortable header -->
+          <div
+            class="grid items-center gap-4 px-5 py-2.5"
+            :style="{
+              background: 'var(--sm-card-alt)',
+              borderBottom: '1px solid var(--sm-border)',
+              gridTemplateColumns: '130px 1fr 110px 80px',
+            }"
+          >
+            <button
+              v-for="h in [
+                { key: 'id', label: 'ID', align: 'left' },
+                { key: 'title', label: 'Title', align: 'left' },
+                { key: 'column', label: 'Column', align: 'left' },
+                { key: 'points', label: 'Points', align: 'right' },
+              ]"
+              :key="h.key"
+              @click="handleSort(h.key)"
+              class="inline-flex cursor-pointer items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.1em]"
+              :style="{
+                background: 'transparent',
+                border: 0,
+                padding: 0,
+                color: sortKey === h.key ? 'var(--sm-ink)' : 'var(--sm-muted)',
+                justifyContent: h.align === 'right' ? 'flex-end' : 'flex-start',
+              }"
+            >
+              <span>{{ h.label }}</span>
+              <span
+                class="text-[9px]"
+                :style="{
+                  color:
+                    sortKey === h.key ? 'var(--sm-accent)' : 'var(--sm-muted)',
+                  opacity: sortKey === h.key ? 1 : 0.35,
+                }"
+                >{{
+                  sortKey === h.key ? (sortDir === 'asc' ? '▲' : '▼') : '↕'
+                }}</span
+              >
+            </button>
+          </div>
+
+          <!-- Rows -->
+          <div class="flex-1 overflow-y-auto">
+            <div
+              v-for="r in pointedRows"
+              :key="r.id"
+              class="grid items-start gap-4 px-5 py-3 transition-opacity"
+              :style="{
+                gridTemplateColumns: '130px 1fr 110px 80px',
+                borderBottom: '1px solid var(--sm-hairline)',
+                opacity: isTaskHidden(r) ? 0.4 : 1,
+              }"
+            >
+              <div class="flex items-center gap-1.5 min-w-0">
                 <button
-                  @click="toggleTaskHidden(task.id)"
-                  class="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                  class="flex-shrink-0"
+                  :style="{ color: 'var(--sm-subtle)' }"
                   :title="
-                    hiddenTaskIds.has(task.id) ? 'Show task' : 'Hide task'
+                    isTaskHidden(r) ? 'Show in report' : 'Hide from report'
                   "
+                  @click="toggleTaskHidden(r.id)"
                 >
                   <svg
-                    v-if="!hiddenTaskIds.has(task.id)"
-                    xmlns="http://www.w3.org/2000/svg"
+                    v-if="!isTaskHidden(r)"
+                    class="h-3.5 w-3.5"
                     fill="none"
-                    viewBox="0 0 24 24"
-                    stroke-width="1.5"
                     stroke="currentColor"
-                    class="w-3.5 h-3.5"
+                    viewBox="0 0 24 24"
                   >
                     <path
                       stroke-linecap="round"
                       stroke-linejoin="round"
-                      d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
+                      stroke-width="2"
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
                     />
                     <path
                       stroke-linecap="round"
                       stroke-linejoin="round"
-                      d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                      stroke-width="2"
+                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
                     />
                   </svg>
                   <svg
                     v-else
-                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-3.5 w-3.5"
                     fill="none"
-                    viewBox="0 0 24 24"
-                    stroke-width="1.5"
                     stroke="currentColor"
-                    class="w-3.5 h-3.5"
+                    viewBox="0 0 24 24"
                   >
                     <path
                       stroke-linecap="round"
                       stroke-linejoin="round"
-                      d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"
+                      stroke-width="2"
+                      d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"
                     />
                   </svg>
                 </button>
-              </div>
-              <p
-                v-if="task.description"
-                class="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2"
-              >
-                {{ task.description }}
-              </p>
-              <!-- Comments -->
-              <div
-                v-if="task.comments && task.comments.length > 0"
-                class="mt-2 space-y-1 border-t border-warm-300 dark:border-white/10 pt-2"
-              >
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  Comments ({{ task.comments.length }})
-                </p>
-                <div
-                  v-for="comment in task.comments"
-                  :key="comment.id"
-                  class="text-xs text-gray-600 dark:text-gray-400 pl-2 border-l-2 border-warm-400 dark:border-white/20"
+                <a
+                  v-if="jiraUrlFor(r)"
+                  :href="jiraUrlFor(r)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="truncate font-mono text-[11px] font-semibold tracking-[0.02em] hover:underline"
+                  :style="{ color: 'var(--sm-ink)' }"
+                  :title="`Open ${r.display_id || r.id} in Jira`"
+                  >{{ r.display_id || r.id }}</a
                 >
-                  <span class="font-medium">{{ comment.user_name }}:</span>
-                  {{ comment.content }}
+                <span
+                  v-else
+                  class="truncate font-mono text-[11px] font-semibold tracking-[0.02em]"
+                  :style="{ color: 'var(--sm-ink)' }"
+                  >{{ r.display_id || r.id }}</span
+                >
+              </div>
+              <div class="min-w-0">
+                <div
+                  class="truncate text-[12.5px] font-medium tracking-[-0.005em]"
+                  :style="{ color: 'var(--sm-text)' }"
+                >
+                  {{ r.title || '—' }}
+                </div>
+                <div
+                  v-if="getTagForTask(r)"
+                  class="mt-1 flex items-center gap-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.06em]"
+                  :style="{ color: 'var(--sm-muted)' }"
+                >
+                  <span
+                    class="block h-1.5 w-1.5 flex-shrink-0"
+                    :style="{ background: tagColorVar(getTagForTask(r)) }"
+                  ></span>
+                  {{ getTagForTask(r).name }}
+                </div>
+                <!-- Comments -->
+                <div v-if="commentsFor(r).length" class="mt-1.5">
+                  <div
+                    class="font-mono text-[9.5px] font-semibold uppercase tracking-[0.08em]"
+                    :style="{ color: 'var(--sm-subtle)' }"
+                  >
+                    Comments ({{ commentsFor(r).length }})
+                  </div>
+                  <div
+                    v-for="c in commentsFor(r)"
+                    :key="c.id"
+                    class="mt-1 text-[11.5px] leading-[1.4]"
+                    :style="{ color: 'var(--sm-muted)' }"
+                  >
+                    <span
+                      class="font-semibold"
+                      :style="{ color: 'var(--sm-text)' }"
+                      >{{ c.user_name }}:</span
+                    >
+                    {{ c.content }}
+                  </div>
                 </div>
               </div>
+              <span
+                class="text-[12px] tracking-[-0.005em]"
+                :style="{ color: 'var(--sm-muted)' }"
+                >{{ r.columnName }}</span
+              >
+              <span
+                class="text-right font-mono text-[13px] font-bold"
+                :style="{ color: 'var(--sm-ink)' }"
+                >{{ r.points
+                }}<span
+                  class="ml-0.5 font-mono text-[10px] font-semibold"
+                  :style="{ color: 'var(--sm-muted)' }"
+                  >pt</span
+                ></span
+              >
             </div>
-            <p
-              v-if="tasksForColumn(column.id).length === 0"
-              class="text-sm text-gray-400 dark:text-gray-500 text-center py-2"
+            <div v-if="pointedRows.length === 0" class="py-10 text-center">
+              <span class="sm-label">No pointed tasks</span>
+            </div>
+          </div>
+
+          <!-- Footer total -->
+          <div
+            class="grid items-baseline gap-4 px-5 py-3.5"
+            :style="{
+              background: 'var(--sm-card-alt)',
+              borderTop: '2px solid var(--sm-ink)',
+              gridTemplateColumns: '130px 1fr 110px 80px',
+            }"
+          >
+            <span class="sm-label">Total</span>
+            <span class="text-[12px]" :style="{ color: 'var(--sm-muted)' }"
+              >{{ pointedRows.length }} tasks across
+              {{ sortedColumns.length }} columns</span
             >
-              No tasks
-            </p>
+            <span></span>
+            <span
+              class="text-right font-mono text-[16px] font-bold"
+              :style="{ color: 'var(--sm-ink)' }"
+              >{{ totalPoints
+              }}<span
+                class="ml-0.5 font-mono text-[11px] font-semibold"
+                :style="{ color: 'var(--sm-muted)' }"
+                >pt</span
+              ></span
+            >
           </div>
         </div>
       </div>
 
-      <!-- Unsorted Tasks -->
-      <div
-        v-if="unsortedTasks.length > 0"
-        class="bg-warm-50 dark:bg-dark-bg-800/60 rounded-xl border border-warm-300 dark:border-white/10 overflow-hidden"
-      >
-        <div
-          class="px-4 py-3 border-b border-warm-300 dark:border-white/10 bg-warm-100 dark:bg-dark-bg-700/50"
-        >
-          <h3 class="font-semibold text-gray-800 dark:text-white">
-            Unsorted Tasks
-          </h3>
-          <p class="text-xs text-gray-500 dark:text-gray-400">
-            {{ unsortedTasks.length }} task{{
-              unsortedTasks.length !== 1 ? 's' : ''
-            }}
-            not assigned to a column
-          </p>
-        </div>
-        <div class="p-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-          <div
-            v-for="task in displayUnsortedTasks"
-            :key="task.id"
-            :class="[
-              'p-3 bg-warm-100 dark:bg-dark-bg-700/50 rounded-lg border border-warm-200 dark:border-white/5 transition-opacity',
-              hiddenTaskIds.has(task.id) ? 'opacity-40' : '',
-            ]"
+      <!-- Unsorted (if any) -->
+      <div v-if="unsortedTasks.length > 0" class="mt-6 px-5 py-5 sm-card">
+        <div class="mb-3 flex items-baseline justify-between">
+          <span class="sm-label">Unsorted ({{ unsortedTasks.length }})</span>
+          <span
+            class="font-mono text-[10px]"
+            :style="{ color: 'var(--sm-subtle)' }"
+            >not assigned to a column</span
           >
-            <div class="flex items-start justify-between gap-2">
-              <div class="min-w-0 flex-1">
-                <p
-                  class="text-sm font-medium text-gray-800 dark:text-white truncate"
-                >
-                  {{ task.title }}
-                </p>
-                <p
-                  v-if="task.jira_key"
-                  class="text-xs text-gray-500 dark:text-gray-400 font-mono"
-                >
-                  {{ task.jira_key }}
-                </p>
-              </div>
+        </div>
+        <div class="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
+          <div
+            v-for="t in unsortedTasks"
+            :key="t.id"
+            class="px-3 py-2 sm-card-alt"
+          >
+            <div class="flex items-baseline justify-between gap-2">
+              <a
+                v-if="jiraUrlFor(t)"
+                :href="jiraUrlFor(t)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="font-mono text-[10px] font-semibold uppercase tracking-[0.04em] hover:underline"
+                :style="{ color: 'var(--sm-muted)' }"
+                :title="`Open ${t.display_id || t.id} in Jira`"
+                >{{ t.display_id || t.id }}</a
+              >
               <span
-                v-if="getTagForTask(task)"
-                :class="[
-                  'text-xs px-2 py-0.5 rounded-full whitespace-nowrap',
-                  tagClasses(getTagForTask(task)),
-                ]"
+                v-else
+                class="font-mono text-[10px] font-semibold uppercase tracking-[0.04em]"
+                :style="{ color: 'var(--sm-muted)' }"
+                >{{ t.display_id || t.id }}</span
               >
-                {{ getTagForTask(task).name }}
+              <span
+                v-if="getTagForTask(t)"
+                class="flex items-center gap-1 font-mono text-[9px] uppercase"
+                :style="{ color: 'var(--sm-muted)' }"
+              >
+                <span
+                  class="block h-1.5 w-1.5"
+                  :style="{ background: tagColorVar(getTagForTask(t)) }"
+                ></span>
+                {{ getTagForTask(t).name }}
               </span>
-              <button
-                @click="toggleTaskHidden(task.id)"
-                class="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-                :title="hiddenTaskIds.has(task.id) ? 'Show task' : 'Hide task'"
-              >
-                <svg
-                  v-if="!hiddenTaskIds.has(task.id)"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke-width="1.5"
-                  stroke="currentColor"
-                  class="w-3.5 h-3.5"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
-                  />
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
-                  />
-                </svg>
-                <svg
-                  v-else
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke-width="1.5"
-                  stroke="currentColor"
-                  class="w-3.5 h-3.5"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"
-                  />
-                </svg>
-              </button>
+            </div>
+            <div
+              class="mt-1 truncate text-[12.5px] font-medium tracking-[-0.005em]"
+              :style="{ color: 'var(--sm-text)' }"
+            >
+              {{ t.title || '—' }}
             </div>
             <!-- Comments -->
-            <div
-              v-if="task.comments && task.comments.length > 0"
-              class="mt-2 space-y-1 border-t border-warm-300 dark:border-white/10 pt-2"
-            >
-              <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                Comments ({{ task.comments.length }})
-              </p>
+            <div v-if="commentsFor(t).length" class="mt-1.5">
               <div
-                v-for="comment in task.comments"
-                :key="comment.id"
-                class="text-xs text-gray-600 dark:text-gray-400 pl-2 border-l-2 border-warm-400 dark:border-white/20"
+                class="font-mono text-[9px] font-semibold uppercase tracking-[0.08em]"
+                :style="{ color: 'var(--sm-subtle)' }"
               >
-                <span class="font-medium">{{ comment.user_name }}:</span>
-                {{ comment.content }}
+                Comments ({{ commentsFor(t).length }})
+              </div>
+              <div
+                v-for="c in commentsFor(t)"
+                :key="c.id"
+                class="mt-1 text-[11px] leading-[1.4]"
+                :style="{ color: 'var(--sm-muted)' }"
+              >
+                <span class="font-semibold" :style="{ color: 'var(--sm-text)' }"
+                  >{{ c.user_name }}:</span
+                >
+                {{ c.content }}
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Summary -->
-      <div
-        class="bg-warm-50 dark:bg-dark-bg-800/60 rounded-xl border border-warm-300 dark:border-white/10 p-4"
-      >
-        <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-          Summary
-        </h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div class="text-center">
-            <p
-              class="text-2xl font-bold text-blue-600 dark:accent-text-primary"
-            >
-              {{ totalPoints }}
-            </p>
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              Total Story Points
-            </p>
-          </div>
-          <div class="text-center">
-            <p
-              class="text-2xl font-bold text-green-600 dark:accent-text-success"
-            >
-              {{ tasksPointed }}
-            </p>
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              Tasks Pointed
-            </p>
-          </div>
-          <div class="text-center">
-            <p class="text-2xl font-bold text-gray-800 dark:text-white">
-              {{ tasks.length }}
-            </p>
-            <p class="text-xs text-gray-500 dark:text-gray-400">Total Tasks</p>
-          </div>
-          <div class="text-center">
-            <p class="text-2xl font-bold text-purple-600 dark:text-purple-400">
-              {{ participants.length }}
-            </p>
-            <p class="text-xs text-gray-500 dark:text-gray-400">Participants</p>
-          </div>
-        </div>
-
-        <!-- Participant List -->
-        <div class="mt-4 pt-4 border-t border-warm-300 dark:border-white/10">
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">
-            Participants
-          </p>
-          <div class="flex flex-wrap gap-2">
-            <span
-              v-for="p in participants"
-              :key="p.id"
-              class="px-2 py-1 text-xs bg-warm-200 dark:bg-white/10 text-gray-700 dark:text-gray-300 rounded-full"
-            >
-              {{ p.user_name }}
-              <span
-                v-if="p.user_id === session?.creator_id"
-                class="text-blue-500 dark:text-accent-cyan"
-                title="Session leader"
-              >
-                ★
-              </span>
-            </span>
           </div>
         </div>
       </div>

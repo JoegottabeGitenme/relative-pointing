@@ -1,0 +1,63 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Baked into the client bundle at build time. Override in .env.
+        VITE_API_URL: ${VITE_API_URL:-/api}
+    image: ${IMAGE:-relative-pointing:latest}
+    container_name: relative-pointing
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-5001}:${APP_PORT:-5001}"
+    environment:
+      NODE_ENV: production
+      PORT: ${APP_PORT:-5001}
+      DB_PATH: ${DB_PATH:-/data/app.db}
+      OFFLINE_THRESHOLD_S: ${OFFLINE_THRESHOLD_S:-15}
+    volumes:
+      - app-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # TLS-terminating reverse proxy. Opt-in: only starts with `--profile tls`.
+  # Requires EC2_DOMAIN to resolve to this host before first start so Caddy
+  # can complete the Let's Encrypt HTTP-01 challenge.
+  caddy:
+    image: caddy:2-alpine
+    container_name: relative-pointing-caddy
+    restart: unless-stopped
+    profiles: ["tls"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      EC2_DOMAIN: ${EC2_DOMAIN}
+      CERTBOT_EMAIL: ${CERTBOT_EMAIL:-}
+      APP_PORT: ${APP_PORT:-5001}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  app-data:
+  caddy-data:
+  caddy-config:

@@ -40,16 +40,21 @@ test.describe('Tag Management', () => {
     // Switch to Tags tab
     await page.getByRole('button', { name: 'Tags' }).click();
 
+    // Scope to the modal so we don't match the tag pills on every task card
+    const modal = page.locator('.fixed.inset-0').first();
+
     // The task should already have "Ready for Dev" tag (auto-assigned)
     // Verify the checkmark is visible for the selected tag
-    const readyForDevButton = page
+    const readyForDevButton = modal
       .locator('button')
       .filter({ hasText: 'Ready for Dev' });
     await expect(readyForDevButton).toBeVisible();
     await expect(readyForDevButton.locator('text=✓')).toBeVisible();
 
     // Select "Blocked" tag instead
-    const blockedButton = page.locator('button').filter({ hasText: 'Blocked' });
+    const blockedButton = modal
+      .locator('button')
+      .filter({ hasText: 'Blocked' });
     await blockedButton.click();
 
     // "Blocked" should now show checkmark
@@ -83,15 +88,20 @@ test.describe('Tag Management', () => {
     await gearButton.click({ force: true });
     await page.getByRole('button', { name: 'Tags' }).click();
 
-    // "Ready for Dev" should have the ring-2 class (active state)
-    const readyForDevButton = page
+    // Scope to the modal — task cards also have tag-pill buttons with the same text
+    const modal = page.locator('.fixed.inset-0').first();
+
+    // "Ready for Dev" should have data-active="true" (active state)
+    const readyForDevButton = modal
       .locator('button')
       .filter({ hasText: 'Ready for Dev' });
-    await expect(readyForDevButton).toHaveClass(/ring-2/);
+    await expect(readyForDevButton).toHaveAttribute('data-active', 'true');
 
-    // "Blocked" should NOT have ring-2
-    const blockedButton = page.locator('button').filter({ hasText: 'Blocked' });
-    await expect(blockedButton).not.toHaveClass(/ring-2/);
+    // "Blocked" should NOT be active
+    const blockedButton = modal
+      .locator('button')
+      .filter({ hasText: 'Blocked' });
+    await expect(blockedButton).not.toHaveAttribute('data-active', 'true');
 
     await creator.context.close();
   });
@@ -167,7 +177,7 @@ test.describe('Tag Management', () => {
       const tagButton = modal.locator('button').filter({ hasText: tagName });
       await tagButton.click();
       await expect(tagButton.locator('text=✓')).toBeVisible();
-      await expect(tagButton).toHaveClass(/ring-2/);
+      await expect(tagButton).toHaveAttribute('data-active', 'true');
 
       // Other tags should not be selected
       for (const otherTag of tags.filter((t) => t !== tagName)) {

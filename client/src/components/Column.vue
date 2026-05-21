@@ -3,70 +3,43 @@ import { ref, computed } from 'vue';
 import draggable from 'vuedraggable';
 import TaskItem from './TaskItem.vue';
 import TaskInfoModal from './TaskInfoModal.vue';
+import { getFibonacciLabel } from '../utils/fibonacci';
 
 const props = defineProps({
-  columnId: {
-    type: String,
-    required: true,
-  },
-  title: {
-    type: String,
-    default: '',
-  },
-  tasks: {
-    type: Array,
-    default: () => [],
-  },
-  tags: {
-    type: Array,
-    default: () => [],
-  },
-  variant: {
-    type: String,
-    default: 'default',
-  },
-  jiraBaseUrl: {
-    type: String,
-    default: null,
-  },
-  dragDisabled: {
-    type: Boolean,
-    default: false,
-  },
-  stackMode: {
-    type: Boolean,
-    default: false,
-  },
-  topTaskId: {
-    type: String,
-    default: null,
-  },
+  columnId: { type: String, required: true },
+  title: { type: String, default: '' },
+  tasks: { type: Array, default: () => [] },
+  tags: { type: Array, default: () => [] },
+  variant: { type: String, default: 'default' },
+  jiraBaseUrl: { type: String, default: null },
+  dragDisabled: { type: Boolean, default: false },
+  stackMode: { type: Boolean, default: false },
+  topTaskId: { type: String, default: null },
+  lastPointedTaskId: { type: String, default: null },
+  columnIndex: { type: Number, default: 0 },
+  pointValue: { type: [Number, String, null], default: null },
 });
 
 const emit = defineEmits(['openActionModal', 'taskMoved']);
 
 const selectedTask = ref(null);
 
-// Local copy for vuedraggable v-model
 const localTasks = computed({
   get: () => props.tasks.filter((t) => t && t.id),
-  set: () => {
-    // Changes handled by @change event
-  },
+  set: () => {},
 });
 
-const variantClasses = computed(() => {
-  if (props.variant === 'tasks') {
-    return 'bg-transparent dark:bg-transparent border-2 border-transparent dark:border-accent-cyan/20 dark:accent-border-primary';
+// Show the Fibonacci label as the column heading. As columns are added,
+// each one's heading slides up the sequence (1, 2, 3, 5, 8, 13, ...).
+// If the user has explicitly customised the column name (anything other
+// than the default "New Column"), respect their name instead.
+const displayTitle = computed(() => {
+  if (props.variant === 'tasks') return props.title;
+  const trimmed = (props.title || '').trim();
+  if (!trimmed || trimmed.toLowerCase() === 'new column') {
+    return getFibonacciLabel(props.columnIndex);
   }
-  return 'bg-transparent dark:bg-transparent border border-transparent dark:border-0 shadow-none dark:shadow-none';
-});
-
-const titleClasses = computed(() => {
-  if (props.variant === 'tasks') {
-    return 'text-lg font-bold text-blue-900 dark:accent-text-primary';
-  }
-  return 'font-semibold text-gray-700 dark:text-gray-200';
+  return trimmed;
 });
 
 function onDragChange(evt) {
@@ -81,19 +54,26 @@ function onDragChange(evt) {
 
 <template>
   <div>
-    <div
-      :class="[
-        'rounded-lg px-1.5 py-3 w-[220px] flex-shrink-0 transition-colors flex flex-col warm-glow-border',
-        variantClasses,
-      ]"
-      style="min-height: 400px"
-    >
+    <div class="flex w-[220px] flex-shrink-0 flex-col">
+      <!-- Header (board columns only — the queue panel renders its own header) -->
       <div
-        v-if="variant === 'tasks'"
-        class="flex items-center justify-between mb-3"
+        v-if="variant !== 'tasks'"
+        class="mb-2.5 flex items-center justify-between pb-2"
+        :style="{ borderBottom: '1px solid var(--sm-border)' }"
       >
-        <h3 :class="titleClasses">{{ title }}</h3>
+        <span
+          class="font-mono text-[14px] font-bold tracking-[-0.01em] truncate"
+          :style="{ color: 'var(--sm-ink)' }"
+          >{{ displayTitle }}</span
+        >
+        <span
+          class="font-mono text-[11px] flex-shrink-0"
+          :style="{ color: 'var(--sm-muted)' }"
+          >{{ localTasks.length }}
+          {{ localTasks.length === 1 ? 'ticket' : 'tickets' }}</span
+        >
       </div>
+
       <draggable
         :model-value="localTasks"
         group="tasks"
@@ -101,7 +81,8 @@ function onDragChange(evt) {
         :filter="'.no-drag'"
         :prevent-on-filter="false"
         :disabled="dragDisabled"
-        class="space-y-2 flex-1 overflow-hidden"
+        :scroll="false"
+        class="flex-1 flex flex-col gap-1.5 min-h-[400px]"
         ghost-class="opacity-30"
         @change="onDragChange"
       >
@@ -118,6 +99,10 @@ function onDragChange(evt) {
                 topTaskId &&
                 String(element.id) === String(topTaskId)
               "
+              :last-pointed="
+                lastPointedTaskId &&
+                String(element.id) === String(lastPointedTaskId)
+              "
               :drag-disabled="
                 dragDisabled ||
                 (stackMode &&
@@ -128,30 +113,33 @@ function onDragChange(evt) {
               @open-action-modal="emit('openActionModal', $event)"
               @show-info="selectedTask = $event"
             />
-            <!-- Stack mode separator between top card and rest -->
-            <hr
+            <!-- Stack mode separator (after the top card) -->
+            <div
               v-if="
                 stackMode &&
                 variant === 'tasks' &&
                 index === 0 &&
                 localTasks.length > 1
               "
-              class="border-t border-amber-300 dark:border-cyan-700 my-3 mx-1 opacity-60"
-            />
+              class="my-2 ml-0.5 mr-0.5 font-mono text-[9.5px] uppercase tracking-[0.12em] font-semibold"
+              :style="{ color: 'var(--sm-subtle)' }"
+            >
+              ↓ up next ({{ localTasks.length - 1 }})
+            </div>
           </div>
         </template>
         <template #footer>
           <p
             v-if="!localTasks || localTasks.length === 0"
-            class="text-sm text-gray-400 dark:text-gray-500 text-center py-4"
+            class="py-4 text-center font-mono text-[10px] uppercase tracking-[0.08em]"
+            :style="{ color: 'var(--sm-subtle)' }"
           >
-            No tasks yet
+            empty
           </p>
         </template>
       </draggable>
     </div>
 
-    <!-- Task Info Modal -->
     <TaskInfoModal
       v-if="selectedTask"
       :task="selectedTask"

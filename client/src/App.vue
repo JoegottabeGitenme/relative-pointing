@@ -5,9 +5,7 @@ const themeStore = useThemeStore();
 </script>
 
 <template>
-  <div
-    class="min-h-screen bg-warm-100 dark:bg-dark-bg-900 transition-colors neon-grid-bg"
-  >
+  <div class="min-h-screen bg-[var(--sm-surface)] text-[var(--sm-text)]">
     <router-view />
   </div>
 </template>

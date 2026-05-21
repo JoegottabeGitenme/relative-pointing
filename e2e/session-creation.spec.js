@@ -4,9 +4,9 @@ test.describe('Session Creation', () => {
   test('home page loads with create and join tabs', async ({ page }) => {
     await page.goto('/');
 
-    await expect(page.getByText('Relative Pointing')).toBeVisible();
-    await expect(page.getByText('Create Session')).toBeVisible();
-    await expect(page.getByText('Join Session')).toBeVisible();
+    await expect(page.getByText('Relative Pointing').first()).toBeVisible();
+    await expect(page.getByText('◆ New session')).toBeVisible();
+    await expect(page.getByText('↩ Join session')).toBeVisible();
   });
 
   test('create session with a name navigates to session page', async ({
@@ -14,14 +14,14 @@ test.describe('Session Creation', () => {
   }) => {
     await page.goto('/');
 
-    await page.getByPlaceholder('Enter your name').fill('Test User');
-    await page.getByRole('button', { name: 'Create New Session' }).click();
+    await page.getByPlaceholder('Type a name…').fill('Test User');
+    await page.getByRole('button', { name: /Create session/i }).click();
 
     // Should navigate to /session/:roomCode
     await expect(page).toHaveURL(/\/session\/.+/);
 
-    // Room code should be visible in the header
-    await expect(page.getByText('Room Code:')).toBeVisible();
+    // Room code prefix should be visible in the header
+    await expect(page.getByText(/^RP\//).first()).toBeVisible();
   });
 
   test('task board renders with sample tasks after session creation', async ({
@@ -29,8 +29,8 @@ test.describe('Session Creation', () => {
   }) => {
     await page.goto('/');
 
-    await page.getByPlaceholder('Enter your name').fill('Test User');
-    await page.getByRole('button', { name: 'Create New Session' }).click();
+    await page.getByPlaceholder('Type a name…').fill('Test User');
+    await page.getByRole('button', { name: /Create session/i }).click();
 
     await expect(page).toHaveURL(/\/session\/.+/);
 
@@ -42,7 +42,7 @@ test.describe('Session Creation', () => {
   test('create session button is disabled without a name', async ({ page }) => {
     await page.goto('/');
 
-    const button = page.getByRole('button', { name: 'Create New Session' });
+    const button = page.getByRole('button', { name: /Create session/i });
     await expect(button).toBeDisabled();
   });
 });
