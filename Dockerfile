@@ -15,7 +15,12 @@ COPY client/package.json ./client/
 COPY server/package.json ./server/
 RUN npm ci --workspaces --include-workspace-root
 
-# Copy source and build the Vue client
+# Copy source and build the Vue client.
+# VITE_API_URL is baked into the bundle at build time (Vite only reads VITE_*
+# vars from the build environment), so it must arrive as a build arg — a
+# runtime env var on the container would be too late to affect the client.
+ARG VITE_API_URL=/api
+ENV VITE_API_URL=${VITE_API_URL}
 COPY client ./client
 COPY server ./server
 RUN npm run build -w client

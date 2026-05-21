@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Baked into the client bundle at build time. Override in .env.
+        VITE_API_URL: ${VITE_API_URL:-/api}
     image: ${IMAGE:-relative-pointing:latest}
     container_name: relative-pointing
     restart: unless-stopped

@@ -63,3 +63,6 @@ server/app.db
 # Playwright
 playwright-report/
 test-results/
+
+# Deploy notes (private)
+DEPLOY.md
