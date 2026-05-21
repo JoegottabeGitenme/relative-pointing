@@ -476,7 +476,7 @@ onMounted(fetchReport);
             </div>
             <div class="flex flex-col gap-3.5">
               <div
-                v-for="(col, ci) in sortedColumns"
+                v-for="col in sortedColumns"
                 :key="col.id"
                 class="transition-opacity"
                 :style="{ opacity: isColumnHidden(col.id) ? 0.4 : 1 }"
@@ -529,23 +529,24 @@ onMounted(fetchReport);
                       </svg>
                     </button>
                     <span
-                      class="text-[12.5px] font-semibold tracking-[-0.005em]"
-                      :style="{ color: 'var(--sm-text)' }"
-                      >{{ columnDisplayName(col, ci) }}</span
-                    >
-                    <span
                       v-if="col.point_value !== null && col.point_value !== ''"
-                      class="font-mono text-[10.5px] font-bold px-1.5"
+                      class="font-mono text-[13px] font-bold px-2 py-0.5"
                       :style="{
                         background: 'var(--sm-accent)',
                         color: '#0a0a0a',
-                        borderRadius: '1px',
+                        borderRadius: '2px',
                       }"
-                      >{{ col.point_value }}pt</span
+                      >{{ col.point_value }} pts</span
+                    >
+                    <span
+                      v-else
+                      class="text-[15px] font-bold"
+                      :style="{ color: 'var(--sm-text)' }"
+                      >—</span
                     >
                   </div>
                   <span
-                    class="font-mono text-[11px]"
+                    class="font-mono text-[12.5px]"
                     :style="{ color: 'var(--sm-muted)' }"
                     >{{ tasksForColumn(col.id).length }}
                     {{
