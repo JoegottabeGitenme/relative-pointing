@@ -15,6 +15,7 @@ const props = defineProps({
   dragDisabled: { type: Boolean, default: false },
   stackMode: { type: Boolean, default: false },
   topTaskId: { type: String, default: null },
+  lastPointedTaskId: { type: String, default: null },
   columnIndex: { type: Number, default: 0 },
   pointValue: { type: [Number, String, null], default: null },
 });
@@ -96,6 +97,10 @@ function onDragChange(evt) {
                 variant === 'tasks' &&
                 topTaskId &&
                 String(element.id) === String(topTaskId)
+              "
+              :last-pointed="
+                lastPointedTaskId &&
+                String(element.id) === String(lastPointedTaskId)
               "
               :drag-disabled="
                 dragDisabled ||

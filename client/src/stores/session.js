@@ -201,6 +201,20 @@ export const useSessionStore = defineStore('session', () => {
     return unsorted.length > 0 ? unsorted[0] : null;
   });
 
+  // The most recently pointed task — the card moved into a column with the
+  // latest assigned_at. Used to draw an accent ring so everyone can see what
+  // was just placed. Tasks sitting in the unsorted queue don't count.
+  const lastPointedTaskId = computed(() => {
+    let latest = null;
+    for (const task of displayTasks.value) {
+      if (!task.assigned_at || task.column_id === 'unsorted') continue;
+      if (!latest || task.assigned_at > latest.assigned_at) {
+        latest = task;
+      }
+    }
+    return latest ? String(latest.id) : null;
+  });
+
   const isMyTurn = computed(() => {
     const userStore = useUserStore();
     return currentTurnUserId.value === userStore.userId;
@@ -214,6 +228,15 @@ export const useSessionStore = defineStore('session', () => {
 
   const isStarted = computed(() => !!session.value?.started_at);
   const isEnded = computed(() => !!session.value?.ended_at);
+
+  // Open floor: every task has been pointed (no unsorted tasks remain) in a
+  // running, not-yet-ended session. Turn enforcement is bypassed so anyone
+  // who isn't skipped can adjust placements before the session ends.
+  const isOpenFloor = computed(() => {
+    if (!isStarted.value || isEnded.value) return false;
+    if (displayTasks.value.length === 0) return false;
+    return !displayTasks.value.some((t) => t.column_id === 'unsorted');
+  });
 
   // ---------------------------------------------------------------------------
   // Turn-based actions
@@ -255,19 +278,18 @@ export const useSessionStore = defineStore('session', () => {
 
       if (autoMoveTopTask && topUnsortedTask.value) {
         const taskId = String(topUnsortedTask.value.id);
-        const columnId = `column-${Date.now()}`;
+        const columnId = generateColumnId();
+        // Attribute the seed move to whoever actually holds the turn — the
+        // server only accepts moves from current_turn_user_id, which isn't
+        // necessarily the creator who pressed Start.
+        const assignedBy = currentTurnUserId.value || userStore.userId;
         await APIService.createColumn(
           roomCode.value,
           columnId,
           'New Column',
           1
         );
-        await APIService.moveTask(
-          roomCode.value,
-          taskId,
-          columnId,
-          userStore.userId
-        );
+        await APIService.moveTask(roomCode.value, taskId, columnId, assignedBy);
         await fetchSession(); // sync the new column + task position
       }
     } catch (err) {
@@ -347,6 +369,16 @@ export const useSessionStore = defineStore('session', () => {
         ? Math.max(...sorted.map((c) => c.column_order || 0))
         : 0;
     return max + 1;
+  }
+
+  /**
+   * Mint a unique column id. Date.now() alone collides when two columns are
+   * created within the same millisecond (e.g. auto-move on start followed by a
+   * fast drag, or two quick drops), which clobbers the Vue key and the server
+   * row. The random suffix makes the id collision-proof.
+   */
+  function generateColumnId() {
+    return `column-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
   /** Returns true if zoneId is a "create new column" drop zone. */
@@ -438,11 +470,14 @@ export const useSessionStore = defineStore('session', () => {
   async function moveTaskToColumn(taskId, targetColumnId, userId) {
     const taskIdStr = String(taskId);
 
-    // --- Guard: turn check ---
-    if (!isMyTurn.value || isCurrentUserDisabled.value) {
+    // --- Guard: turn check (bypassed when the floor is open) ---
+    if (
+      (!isMyTurn.value && !isOpenFloor.value) ||
+      isCurrentUserDisabled.value
+    ) {
       console.warn(
         LOG_PREFIX,
-        'Move rejected: not your turn or disabled',
+        'Move rejected: not your turn / disabled / floor not open',
         taskIdStr
       );
       return;
@@ -488,7 +523,7 @@ export const useSessionStore = defineStore('session', () => {
     let actualTargetColumnId = targetColumnId;
 
     if (isNewColumnZone(targetColumnId)) {
-      actualTargetColumnId = `column-${Date.now()}`;
+      actualTargetColumnId = generateColumnId();
       const order = computeColumnOrder(targetColumnId);
       newColumnData = {
         id: actualTargetColumnId,
@@ -691,10 +726,12 @@ export const useSessionStore = defineStore('session', () => {
     stackMode,
     currentTurnParticipant,
     topUnsortedTask,
+    lastPointedTaskId,
     isMyTurn,
     isCurrentUserDisabled,
     isStarted,
     isEnded,
+    isOpenFloor,
     // Actions
     startPolling,
     stopPolling,

@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useThemeStore } from '../stores/theme';
 import APIService from '../services/api';
+import { buildJiraUrl, detectJiraBaseUrl } from '../utils/jiraUrlBuilder';
 import Version from './Version.vue';
 import Identicon from './Identicon.vue';
 
@@ -45,6 +46,53 @@ function tasksForColumn(columnId) {
   return tasks.value.filter((t) => t.column_id === columnId);
 }
 
+// ---------------------------------------------------------------------------
+// Hide toggles — per-task and per-column. Hidden tasks are dimmed (opacity-40)
+// and excluded from totals and the CSV export, letting the host curate the
+// final report without deleting anything.
+// ---------------------------------------------------------------------------
+const hiddenTaskIds = ref(new Set());
+const hiddenColumnIds = ref(new Set());
+
+function toggleTaskHidden(taskId) {
+  const id = String(taskId);
+  const next = new Set(hiddenTaskIds.value);
+  next.has(id) ? next.delete(id) : next.add(id);
+  hiddenTaskIds.value = next;
+}
+
+function toggleColumnHidden(columnId) {
+  const next = new Set(hiddenColumnIds.value);
+  next.has(columnId) ? next.delete(columnId) : next.add(columnId);
+  hiddenColumnIds.value = next;
+}
+
+function isColumnHidden(columnId) {
+  return hiddenColumnIds.value.has(columnId);
+}
+
+function isTaskHidden(task) {
+  return (
+    hiddenTaskIds.value.has(String(task.id)) ||
+    hiddenColumnIds.value.has(task.column_id)
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Jira deep links — prefer the session's configured base URL, otherwise fall
+// back to guessing it from the issue key. Returns null when neither yields a
+// valid URL, in which case the template renders plain text.
+// ---------------------------------------------------------------------------
+function jiraUrlFor(task) {
+  const key = task.display_id || task.jira_key || task.id;
+  const base = session.value?.jira_base_url ?? detectJiraBaseUrl(key);
+  return buildJiraUrl(base, key);
+}
+
+function commentsFor(task) {
+  return task.comments || [];
+}
+
 function getTagForTask(task) {
   if (!task.tag_id) return null;
   return tags.value.find((t) => t.id === task.tag_id);
@@ -81,15 +129,17 @@ const sessionDuration = computed(() => {
 const totalPoints = computed(() => {
   let total = 0;
   for (const col of sortedColumns.value) {
-    const count = tasksForColumn(col.id).length;
+    if (isColumnHidden(col.id)) continue;
+    const count = tasksForColumn(col.id).filter((t) => !isTaskHidden(t)).length;
     total += (col.point_value || 0) * count;
   }
   return total;
 });
 
 const tasksPointed = computed(() => {
-  return tasks.value.filter((t) => t.column_id && t.column_id !== 'unsorted')
-    .length;
+  return tasks.value.filter(
+    (t) => t.column_id && t.column_id !== 'unsorted' && !isTaskHidden(t)
+  ).length;
 });
 
 const maxColumnCount = computed(() => {
@@ -196,13 +246,15 @@ async function handlePointValueChange(columnId, value) {
 
 function exportCSV() {
   const header = ['ID', 'Title', 'Column', 'Points', 'Tag'];
-  const rows = pointedRows.value.map((r) => [
-    r.display_id || r.id,
-    r.title || '',
-    r.columnName,
-    r.points,
-    getTagForTask(r)?.name || '',
-  ]);
+  const rows = pointedRows.value
+    .filter((r) => !isTaskHidden(r))
+    .map((r) => [
+      r.display_id || r.id,
+      r.title || '',
+      r.columnName,
+      r.points,
+      getTagForTask(r)?.name || '',
+    ]);
   const csv = [header, ...rows]
     .map((row) =>
       row
@@ -422,9 +474,59 @@ onMounted(fetchReport);
               >
             </div>
             <div class="flex flex-col gap-3.5">
-              <div v-for="col in sortedColumns" :key="col.id">
+              <div
+                v-for="col in sortedColumns"
+                :key="col.id"
+                class="transition-opacity"
+                :style="{ opacity: isColumnHidden(col.id) ? 0.4 : 1 }"
+              >
                 <div class="mb-1.5 flex items-baseline justify-between">
-                  <div class="flex items-baseline gap-2">
+                  <div class="flex items-center gap-2">
+                    <button
+                      class="flex-shrink-0 self-center"
+                      :style="{ color: 'var(--sm-subtle)' }"
+                      :title="
+                        isColumnHidden(col.id)
+                          ? 'Show column in report'
+                          : 'Hide column from report'
+                      "
+                      @click="toggleColumnHidden(col.id)"
+                    >
+                      <svg
+                        v-if="!isColumnHidden(col.id)"
+                        class="h-3.5 w-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                        />
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                        />
+                      </svg>
+                      <svg
+                        v-else
+                        class="h-3.5 w-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"
+                        />
+                      </svg>
+                    </button>
                     <span
                       class="text-[12.5px] font-semibold tracking-[-0.005em]"
                       :style="{ color: 'var(--sm-text)' }"
@@ -552,7 +654,7 @@ onMounted(fetchReport);
             :style="{
               background: 'var(--sm-card-alt)',
               borderBottom: '1px solid var(--sm-border)',
-              gridTemplateColumns: '110px 1fr 110px 80px',
+              gridTemplateColumns: '130px 1fr 110px 80px',
             }"
           >
             <button
@@ -593,17 +695,74 @@ onMounted(fetchReport);
             <div
               v-for="r in pointedRows"
               :key="r.id"
-              class="grid items-center gap-4 px-5 py-3"
+              class="grid items-start gap-4 px-5 py-3 transition-opacity"
               :style="{
-                gridTemplateColumns: '110px 1fr 110px 80px',
+                gridTemplateColumns: '130px 1fr 110px 80px',
                 borderBottom: '1px solid var(--sm-hairline)',
+                opacity: isTaskHidden(r) ? 0.4 : 1,
               }"
             >
-              <span
-                class="font-mono text-[11px] font-semibold tracking-[0.02em]"
-                :style="{ color: 'var(--sm-ink)' }"
-                >{{ r.display_id || r.id }}</span
-              >
+              <div class="flex items-center gap-1.5 min-w-0">
+                <button
+                  class="flex-shrink-0"
+                  :style="{ color: 'var(--sm-subtle)' }"
+                  :title="
+                    isTaskHidden(r) ? 'Show in report' : 'Hide from report'
+                  "
+                  @click="toggleTaskHidden(r.id)"
+                >
+                  <svg
+                    v-if="!isTaskHidden(r)"
+                    class="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                    />
+                  </svg>
+                  <svg
+                    v-else
+                    class="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"
+                    />
+                  </svg>
+                </button>
+                <a
+                  v-if="jiraUrlFor(r)"
+                  :href="jiraUrlFor(r)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="truncate font-mono text-[11px] font-semibold tracking-[0.02em] hover:underline"
+                  :style="{ color: 'var(--sm-ink)' }"
+                  :title="`Open ${r.display_id || r.id} in Jira`"
+                  >{{ r.display_id || r.id }}</a
+                >
+                <span
+                  v-else
+                  class="truncate font-mono text-[11px] font-semibold tracking-[0.02em]"
+                  :style="{ color: 'var(--sm-ink)' }"
+                  >{{ r.display_id || r.id }}</span
+                >
+              </div>
               <div class="min-w-0">
                 <div
                   class="truncate text-[12.5px] font-medium tracking-[-0.005em]"
@@ -621,6 +780,28 @@ onMounted(fetchReport);
                     :style="{ background: tagColorVar(getTagForTask(r)) }"
                   ></span>
                   {{ getTagForTask(r).name }}
+                </div>
+                <!-- Comments -->
+                <div v-if="commentsFor(r).length" class="mt-1.5">
+                  <div
+                    class="font-mono text-[9.5px] font-semibold uppercase tracking-[0.08em]"
+                    :style="{ color: 'var(--sm-subtle)' }"
+                  >
+                    Comments ({{ commentsFor(r).length }})
+                  </div>
+                  <div
+                    v-for="c in commentsFor(r)"
+                    :key="c.id"
+                    class="mt-1 text-[11.5px] leading-[1.4]"
+                    :style="{ color: 'var(--sm-muted)' }"
+                  >
+                    <span
+                      class="font-semibold"
+                      :style="{ color: 'var(--sm-text)' }"
+                      >{{ c.user_name }}:</span
+                    >
+                    {{ c.content }}
+                  </div>
                 </div>
               </div>
               <span
@@ -650,7 +831,7 @@ onMounted(fetchReport);
             :style="{
               background: 'var(--sm-card-alt)',
               borderTop: '2px solid var(--sm-ink)',
-              gridTemplateColumns: '110px 1fr 110px 80px',
+              gridTemplateColumns: '130px 1fr 110px 80px',
             }"
           >
             <span class="sm-label">Total</span>
@@ -690,7 +871,18 @@ onMounted(fetchReport);
             class="px-3 py-2 sm-card-alt"
           >
             <div class="flex items-baseline justify-between gap-2">
+              <a
+                v-if="jiraUrlFor(t)"
+                :href="jiraUrlFor(t)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="font-mono text-[10px] font-semibold uppercase tracking-[0.04em] hover:underline"
+                :style="{ color: 'var(--sm-muted)' }"
+                :title="`Open ${t.display_id || t.id} in Jira`"
+                >{{ t.display_id || t.id }}</a
+              >
               <span
+                v-else
                 class="font-mono text-[10px] font-semibold uppercase tracking-[0.04em]"
                 :style="{ color: 'var(--sm-muted)' }"
                 >{{ t.display_id || t.id }}</span
@@ -712,6 +904,26 @@ onMounted(fetchReport);
               :style="{ color: 'var(--sm-text)' }"
             >
               {{ t.title || '—' }}
+            </div>
+            <!-- Comments -->
+            <div v-if="commentsFor(t).length" class="mt-1.5">
+              <div
+                class="font-mono text-[9px] font-semibold uppercase tracking-[0.08em]"
+                :style="{ color: 'var(--sm-subtle)' }"
+              >
+                Comments ({{ commentsFor(t).length }})
+              </div>
+              <div
+                v-for="c in commentsFor(t)"
+                :key="c.id"
+                class="mt-1 text-[11px] leading-[1.4]"
+                :style="{ color: 'var(--sm-muted)' }"
+              >
+                <span class="font-semibold" :style="{ color: 'var(--sm-text)' }"
+                  >{{ c.user_name }}:</span
+                >
+                {{ c.content }}
+              </div>
             </div>
           </div>
         </div>

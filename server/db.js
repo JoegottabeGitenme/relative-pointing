@@ -5,11 +5,10 @@ const fs = require('fs');
 // Session inactivity timeout (15 minutes)
 const SESSION_TIMEOUT_MS = 15 * 60 * 1000;
 
-// Presence thresholds (configurable via env for testing)
+// Offline threshold drives the grayscale "offline" badge in the UI
+// (configurable via env for testing). Turns are never auto-skipped or
+// auto-transferred — ownership and turn rotation stay fully user-driven.
 const OFFLINE_THRESHOLD_S = parseInt(process.env.OFFLINE_THRESHOLD_S, 10) || 15;
-const AUTO_SKIP_TURN_S = parseInt(process.env.AUTO_SKIP_TURN_S, 10) || 30;
-const AUTO_TRANSFER_OWNER_S =
-  parseInt(process.env.AUTO_TRANSFER_OWNER_S, 10) || 60;
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'app.db');
 
@@ -40,9 +39,8 @@ function initializeDatabase() {
     const executeNextStatement = () => {
       if (index >= statements.length) {
         console.log('Database schema initialized');
-        // Start the cleanup job and presence check
+        // Start the inactive-session cleanup job
         startSessionCleanup();
-        startPresenceCheck();
         return;
       }
 
@@ -348,151 +346,6 @@ function touchParticipant(sessionId, userId) {
       }
     );
   });
-}
-
-// Periodic presence check: auto-skip turns and auto-transfer ownership
-function startPresenceCheck() {
-  setInterval(async () => {
-    try {
-      const now = new Date();
-      const skipCutoff = new Date(now.getTime() - AUTO_SKIP_TURN_S * 1000)
-        .toISOString()
-        .replace('T', ' ')
-        .replace(/\.\d{3}Z$/, '');
-      const transferCutoff = new Date(
-        now.getTime() - AUTO_TRANSFER_OWNER_S * 1000
-      )
-        .toISOString()
-        .replace('T', ' ')
-        .replace(/\.\d{3}Z$/, '');
-      const onlineCutoff = new Date(now.getTime() - OFFLINE_THRESHOLD_S * 1000)
-        .toISOString()
-        .replace('T', ' ')
-        .replace(/\.\d{3}Z$/, '');
-
-      // Get recently active sessions only (active within the last hour)
-      const sessions = await dbPromise.all(
-        `SELECT * FROM sessions WHERE last_activity_at > datetime('now', '-1 hour')`
-      );
-
-      for (const session of sessions) {
-        const participants = await dbPromise.all(
-          `SELECT * FROM participants WHERE session_id = ? ORDER BY joined_at ASC`,
-          [session.id]
-        );
-
-        if (participants.length === 0) continue;
-
-        const skippedList = safeJsonParse(session.skipped_participants, []);
-
-        // --- Auto-skip turn if turn holder is offline (only for started sessions) ---
-        if (session.current_turn_user_id && session.started_at) {
-          const turnHolder = participants.find(
-            (p) => p.user_id === session.current_turn_user_id
-          );
-          if (
-            turnHolder &&
-            turnHolder.last_seen_at &&
-            turnHolder.last_seen_at < skipCutoff
-          ) {
-            // Turn holder has been offline for > AUTO_SKIP_TURN_S
-            const rotation = participants.filter(
-              (p) =>
-                !skippedList.includes(p.user_id) &&
-                p.last_seen_at &&
-                p.last_seen_at >= onlineCutoff
-            );
-
-            if (rotation.length > 0) {
-              const currentIndex = rotation.findIndex(
-                (p) => p.user_id === session.current_turn_user_id
-              );
-              const nextIndex =
-                currentIndex === -1 ? 0 : (currentIndex + 1) % rotation.length;
-              await dbPromise.run(
-                `UPDATE sessions SET current_turn_user_id = ?, turn_started_at = CURRENT_TIMESTAMP WHERE id = ?`,
-                [rotation[nextIndex].user_id, session.id]
-              );
-              console.log(
-                `[PRESENCE] Auto-skipped turn in session ${session.room_code}: ${turnHolder.user_name} -> ${rotation[nextIndex].user_name}`
-              );
-            } else {
-              // No online, non-skipped participants — clear the turn
-              await dbPromise.run(
-                `UPDATE sessions SET current_turn_user_id = NULL, turn_started_at = NULL WHERE id = ?`,
-                [session.id]
-              );
-              console.log(
-                `[PRESENCE] Cleared turn in session ${session.room_code} — no online active participants`
-              );
-            }
-          }
-        }
-
-        // Re-read session to get fresh state after potential turn changes above
-        const freshSession = await dbPromise.get(
-          `SELECT * FROM sessions WHERE id = ?`,
-          [session.id]
-        );
-
-        // If turn is null but session has started and there are online active participants, assign one
-        if (!freshSession.current_turn_user_id && freshSession.started_at) {
-          const onlineActive = participants.filter(
-            (p) =>
-              !skippedList.includes(p.user_id) &&
-              p.last_seen_at &&
-              p.last_seen_at >= onlineCutoff
-          );
-          if (onlineActive.length > 0) {
-            await dbPromise.run(
-              `UPDATE sessions SET current_turn_user_id = ?, turn_started_at = CURRENT_TIMESTAMP WHERE id = ?`,
-              [onlineActive[0].user_id, session.id]
-            );
-            console.log(
-              `[PRESENCE] Assigned turn in session ${session.room_code} to ${onlineActive[0].user_name} (was null)`
-            );
-          }
-        }
-
-        // --- Auto-transfer ownership if creator is offline ---
-        const creator = participants.find(
-          (p) => p.user_id === freshSession.creator_id
-        );
-        if (
-          creator &&
-          creator.last_seen_at &&
-          creator.last_seen_at < transferCutoff
-        ) {
-          // Creator has been offline for > AUTO_TRANSFER_OWNER_S
-          // Find the next eligible owner: earliest-joined, online, non-skipped participant
-          const candidates = participants.filter(
-            (p) =>
-              p.user_id !== freshSession.creator_id &&
-              !skippedList.includes(p.user_id) &&
-              p.last_seen_at &&
-              p.last_seen_at >= onlineCutoff
-          );
-
-          if (candidates.length > 0) {
-            const newOwner = candidates[0]; // earliest joined due to ORDER BY joined_at ASC
-            await dbPromise.run(
-              `UPDATE sessions SET creator_id = ?, creator_name = ? WHERE id = ?`,
-              [newOwner.user_id, newOwner.user_name, session.id]
-            );
-            console.log(
-              `[PRESENCE] Auto-transferred ownership in session ${session.room_code}: ${creator.user_name} -> ${newOwner.user_name}`
-            );
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[PRESENCE] Error in presence check:', err);
-    }
-  }, 10 * 1000); // Run every 10 seconds
-
-  console.log(
-    `Presence check started (offline: ${OFFLINE_THRESHOLD_S}s, auto-skip: ${AUTO_SKIP_TURN_S}s, auto-transfer: ${AUTO_TRANSFER_OWNER_S}s)`
-  );
 }
 
 // Helper functions for common operations

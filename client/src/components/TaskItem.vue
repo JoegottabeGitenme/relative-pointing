@@ -9,6 +9,9 @@ const props = defineProps({
   tags: { type: Array, default: () => [] },
   showInfo: { type: Boolean, default: false },
   highlighted: { type: Boolean, default: false },
+  // The most recently pointed card — draws an accent ring so everyone can
+  // see what was just placed, even when it isn't their turn.
+  lastPointed: { type: Boolean, default: false },
   dragDisabled: { type: Boolean, default: false },
 });
 
@@ -64,12 +67,17 @@ function openJira(e) {
     :data-highlighted="highlighted ? 'true' : undefined"
     :style="{
       background: 'var(--sm-card)',
-      border: highlighted
-        ? '1.5px solid var(--sm-accent)'
-        : '1px solid var(--sm-border)',
+      border:
+        highlighted || lastPointed
+          ? '1.5px solid var(--sm-accent)'
+          : '1px solid var(--sm-border)',
       borderRadius: '2px',
-      boxShadow: highlighted ? '4px 4px 0 var(--sm-accent)' : 'none',
-      opacity: dragDisabled && !highlighted ? 0.4 : 1,
+      boxShadow: highlighted
+        ? '4px 4px 0 var(--sm-accent)'
+        : lastPointed
+          ? '0 0 0 2px var(--sm-accent)'
+          : 'none',
+      opacity: dragDisabled && !highlighted && !lastPointed ? 0.4 : 1,
     }"
   >
     <!-- Tag color stripe -->
