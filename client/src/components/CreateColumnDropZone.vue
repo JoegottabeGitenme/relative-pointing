@@ -16,10 +16,13 @@ const emit = defineEmits(['taskDropped']);
 //   right  — far-right edge / append (after the last column, and empty board)
 //   center — between two existing columns
 // Edge zones live in the empty margin beside the columns, so they can be a
-// wide, easy target without stealing drops from any column. The between zone
-// sits inside the ~28px gap between two columns, so it's kept narrow enough
-// (w-5 = 20px, centered) to stay fully within that gap and never overlap a
-// column's body — otherwise it would steal drops aimed at a column edge.
+// wide, easy target without stealing drops from any column. They're sized
+// (w-40 = 160px) to be a generous drop target near a full board's edges; the
+// board reserves matching left/right padding so each strip sits in clear space
+// (the right one clears the floating queue panel). The between zone sits inside
+// the ~28px gap between two columns, so it's kept narrow enough (w-5 = 20px,
+// centered) to stay fully within that gap and never overlap a column's body —
+// otherwise it would steal drops aimed at a column edge.
 const placement = computed(() => {
   if (props.zoneId === 'new-column-left') return 'left';
   if (props.zoneId.startsWith('new-column-between')) return 'center';
@@ -28,8 +31,8 @@ const placement = computed(() => {
 
 const zonePosClass = computed(() => {
   if (placement.value === 'center') return 'left-1/2 -translate-x-1/2 w-5';
-  if (placement.value === 'left') return 'right-0 w-28';
-  return 'left-0 w-28';
+  if (placement.value === 'left') return 'right-0 w-40';
+  return 'left-0 w-40';
 });
 
 // Drop zone starts locked — only accepts drops after a short hover delay
@@ -125,6 +128,7 @@ function onDragChange(evt) {
       :model-value="items"
       :group="groupConfig"
       item-key="id"
+      :scroll="false"
       :class="['absolute inset-y-0 overflow-hidden opacity-0', zonePosClass]"
       @change="onDragChange"
       @dragenter="onHoverStart"

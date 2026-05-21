@@ -40,6 +40,7 @@ const showJiraUrlInput = ref(false);
 const sidebarCollapsed = ref(false);
 const boardAreaRef = ref(null);
 const dropZoneRef = ref(null);
+const queuePanelRef = ref(null);
 
 // Auto-collapse sidebar on narrow viewports
 const COLLAPSE_BREAKPOINT = 1024;
@@ -189,8 +190,18 @@ const unsortedTasks = computed(() =>
   sessionStore.displayTasks.filter((t) => t.column_id === 'unsorted')
 );
 
+// Cards in a column show in the order they were dropped (oldest at top, most
+// recent at the bottom) rather than by task number / import order. assigned_at
+// is an ISO-ish UTC string, so a plain string compare is chronological.
 function tasksForColumn(columnId) {
-  return sessionStore.displayTasks.filter((t) => t.column_id === columnId);
+  return sessionStore.displayTasks
+    .filter((t) => t.column_id === columnId)
+    .sort((a, b) => {
+      const at = a.assigned_at || '';
+      const bt = b.assigned_at || '';
+      if (at === bt) return 0;
+      return at < bt ? -1 : 1;
+    });
 }
 
 // Complexity header scroll navigation
@@ -333,13 +344,91 @@ function handleLogout() {
   userStore.logout();
 }
 
-// Track drag state across the whole board
+// ---------------------------------------------------------------------------
+// Drag tracking + edge auto-scroll
+//
+// While a card is being dragged, scroll the board horizontally when the cursor
+// nears the left/right edge — otherwise the leftmost/rightmost drop zones are
+// unreachable once the columns overflow the viewport. The right boundary is the
+// queue panel's left edge (it floats over the board), not the viewport edge.
+//
+// This is the *only* auto-scroller: SortableJS's built-in scroll is disabled on
+// the draggables (:scroll="false") so they don't fight this one and double up.
+// We ease toward a target velocity rather than snapping scrollLeft directly, so
+// scrolling ramps up/down smoothly and you can still settle precisely near an
+// edge to drop instead of the board running away from you.
+// ---------------------------------------------------------------------------
+const EDGE_ZONE = 70; // px from the edge where auto-scroll begins
+const MAX_SCROLL_SPEED = 13; // px per frame at the very edge
+const VELOCITY_EASING = 0.16; // how fast current speed approaches the target
+let dragPointerX = null;
+let scrollVelocity = 0;
+let autoScrollFrame = null;
+
+function onDragOver(e) {
+  dragPointerX = e.clientX;
+}
+
+// Desired scroll speed for the current cursor position. Zero unless the cursor
+// is inside an edge zone *and* there's still room to scroll that way. Intensity
+// is squared so it eases in gently from the zone's inner border to full speed
+// only at the very edge.
+function targetScrollVelocity() {
+  const container = boardAreaRef.value;
+  if (!container || dragPointerX == null) return 0;
+
+  const rect = container.getBoundingClientRect();
+  const leftEdge = rect.left;
+  const queueRect = queuePanelRef.value?.getBoundingClientRect();
+  const rightEdge =
+    queueRect && queueRect.left < rect.right ? queueRect.left : rect.right;
+
+  const canScrollLeft = container.scrollLeft > 0;
+  const canScrollRight =
+    container.scrollLeft < container.scrollWidth - container.clientWidth - 1;
+
+  if (canScrollLeft && dragPointerX < leftEdge + EDGE_ZONE) {
+    const t = Math.min(1, (leftEdge + EDGE_ZONE - dragPointerX) / EDGE_ZONE);
+    return -MAX_SCROLL_SPEED * t * t;
+  }
+  if (canScrollRight && dragPointerX > rightEdge - EDGE_ZONE) {
+    const t = Math.min(1, (dragPointerX - (rightEdge - EDGE_ZONE)) / EDGE_ZONE);
+    return MAX_SCROLL_SPEED * t * t;
+  }
+  return 0;
+}
+
+function autoScrollStep() {
+  const container = boardAreaRef.value;
+  if (container) {
+    const target = targetScrollVelocity();
+    scrollVelocity += (target - scrollVelocity) * VELOCITY_EASING;
+    // Snap tiny residual velocity to zero so it comes to a clean rest.
+    if (Math.abs(scrollVelocity) < 0.15) scrollVelocity = 0;
+    if (scrollVelocity !== 0) container.scrollLeft += scrollVelocity;
+  }
+  autoScrollFrame = requestAnimationFrame(autoScrollStep);
+}
+
 function onDragStart() {
   isDragging.value = true;
+  dragPointerX = null;
+  scrollVelocity = 0;
+  document.addEventListener('dragover', onDragOver);
+  if (autoScrollFrame == null) {
+    autoScrollFrame = requestAnimationFrame(autoScrollStep);
+  }
 }
 
 function onDragEnd() {
   isDragging.value = false;
+  dragPointerX = null;
+  scrollVelocity = 0;
+  document.removeEventListener('dragover', onDragOver);
+  if (autoScrollFrame != null) {
+    cancelAnimationFrame(autoScrollFrame);
+    autoScrollFrame = null;
+  }
 }
 
 // Add/remove document-level listeners for drag detection
@@ -351,6 +440,11 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('dragstart', onDragStart);
   document.removeEventListener('dragend', onDragEnd);
+  document.removeEventListener('dragover', onDragOver);
+  if (autoScrollFrame != null) {
+    cancelAnimationFrame(autoScrollFrame);
+    autoScrollFrame = null;
+  }
 });
 </script>
 
@@ -811,7 +905,7 @@ onUnmounted(() => {
         <!-- Task Board Area -->
         <div
           ref="boardAreaRef"
-          class="board-no-scrollbar relative z-10 h-full overflow-y-auto overflow-x-auto py-5 pl-6 pr-[20rem]"
+          class="board-no-scrollbar relative z-10 h-full overflow-y-auto overflow-x-auto py-5 pl-44 pr-[32rem]"
           :style="{ background: 'var(--sm-surface)' }"
         >
           <!-- Columns keep their position whether or not a drag is in
@@ -909,6 +1003,7 @@ onUnmounted(() => {
              board surface continues behind it, so there's always room to drop
              a card past the last column to create a new one. -->
         <aside
+          ref="queuePanelRef"
           class="absolute bottom-4 right-4 top-4 z-20 flex w-72 flex-col overflow-hidden rounded-lg"
           :style="{
             background: 'var(--sm-card)',

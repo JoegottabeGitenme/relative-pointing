@@ -81,6 +81,7 @@ function onDragChange(evt) {
         :filter="'.no-drag'"
         :prevent-on-filter="false"
         :disabled="dragDisabled"
+        :scroll="false"
         class="flex-1 flex flex-col gap-1.5 min-h-[400px]"
         ghost-class="opacity-30"
         @change="onDragChange"

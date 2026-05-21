@@ -381,6 +381,17 @@ export const useSessionStore = defineStore('session', () => {
     return `column-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
+  /**
+   * Timestamp matching SQLite's CURRENT_TIMESTAMP (UTC 'YYYY-MM-DD HH:MM:SS'),
+   * but with millisecond precision retained. Used to stamp optimistic moves so
+   * the just-dropped card immediately sorts to the bottom of its column and
+   * wins the "last pointed" ring — without waiting for the next poll. The extra
+   * millis guarantee it sorts ahead of any same-second backend timestamp.
+   */
+  function currentAssignedAt() {
+    return new Date().toISOString().slice(0, 23).replace('T', ' ');
+  }
+
   /** Returns true if zoneId is a "create new column" drop zone. */
   function isNewColumnZone(zoneId) {
     return (
@@ -549,6 +560,9 @@ export const useSessionStore = defineStore('session', () => {
       [taskIdStr]: {
         ...backendTask,
         column_id: actualTargetColumnId,
+        // Stamp the move time now so the card jumps to the bottom of its new
+        // column and gets the last-pointed ring instantly (not after a poll).
+        assigned_at: currentAssignedAt(),
         // Preserve any in-flight tag change
         ...(existingOptimistic?.tag_id != null
           ? { tag_id: existingOptimistic.tag_id }

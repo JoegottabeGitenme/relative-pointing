@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useThemeStore } from '../stores/theme';
 import APIService from '../services/api';
 import { buildJiraUrl, detectJiraBaseUrl } from '../utils/jiraUrlBuilder';
+import { getFibonacciLabel } from '../utils/fibonacci';
 import Version from './Version.vue';
 import Identicon from './Identicon.vue';
 
@@ -44,6 +45,18 @@ const unsortedTasks = computed(() =>
 
 function tasksForColumn(columnId) {
   return tasks.value.filter((t) => t.column_id === columnId);
+}
+
+// Columns are stored with the placeholder name "New Column"; the board shows a
+// Fibonacci position label instead (1, 2, 3, 5, 8…). Mirror that here so the
+// report doesn't read "New Column" next to every bucket. A name the user
+// actually customised is respected.
+function columnDisplayName(col, index) {
+  const trimmed = (col.name || '').trim();
+  if (!trimmed || trimmed.toLowerCase() === 'new column') {
+    return getFibonacciLabel(index);
+  }
+  return trimmed;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,12 +169,21 @@ const sortDir = ref('desc');
 
 const pointedRows = computed(() => {
   const rows = [];
-  for (const col of sortedColumns.value) {
+  sortedColumns.value.forEach((col, index) => {
     for (const t of tasksForColumn(col.id)) {
-      rows.push({ ...t, columnName: col.name, points: col.point_value || 0 });
+      rows.push({
+        ...t,
+        columnName: columnDisplayName(col, index),
+        points: col.point_value || 0,
+      });
     }
-  }
+  });
   rows.sort((a, b) => {
+    // Hidden tasks always sink to the bottom, regardless of the active sort.
+    const aHidden = isTaskHidden(a) ? 1 : 0;
+    const bHidden = isTaskHidden(b) ? 1 : 0;
+    if (aHidden !== bHidden) return aHidden - bHidden;
+
     let av, bv;
     if (sortKey.value === 'id') {
       av = String(a.display_id || a.id);
@@ -220,27 +242,6 @@ async function handleApplyScale() {
     }
   } catch (err) {
     console.error('Error applying scale:', err);
-  }
-}
-
-async function handlePointValueChange(columnId, value) {
-  const numValue = parseFloat(value);
-  if (isNaN(numValue)) return;
-
-  columns.value = columns.value.map((c) =>
-    c.id === columnId ? { ...c, point_value: numValue } : c
-  );
-
-  try {
-    await APIService.updateColumnPointValue(
-      roomCode.value,
-      columnId,
-      userId,
-      numValue
-    );
-  } catch (err) {
-    console.error('Error updating point value:', err);
-    await fetchReport();
   }
 }
 
@@ -475,7 +476,7 @@ onMounted(fetchReport);
             </div>
             <div class="flex flex-col gap-3.5">
               <div
-                v-for="col in sortedColumns"
+                v-for="(col, ci) in sortedColumns"
                 :key="col.id"
                 class="transition-opacity"
                 :style="{ opacity: isColumnHidden(col.id) ? 0.4 : 1 }"
@@ -530,29 +531,10 @@ onMounted(fetchReport);
                     <span
                       class="text-[12.5px] font-semibold tracking-[-0.005em]"
                       :style="{ color: 'var(--sm-text)' }"
-                      >{{ col.name }}</span
+                      >{{ columnDisplayName(col, ci) }}</span
                     >
-                    <span v-if="isCreator" class="ml-1">
-                      <input
-                        type="number"
-                        :value="col.point_value"
-                        @change="
-                          handlePointValueChange(col.id, $event.target.value)
-                        "
-                        class="px-1.5 py-0 font-mono text-[10.5px] font-bold w-14"
-                        :style="{
-                          background: 'var(--sm-accent)',
-                          color: '#0a0a0a',
-                          borderRadius: '1px',
-                          border: 'none',
-                        }"
-                        step="any"
-                      />
-                    </span>
                     <span
-                      v-else-if="
-                        col.point_value !== null && col.point_value !== ''
-                      "
+                      v-if="col.point_value !== null && col.point_value !== ''"
                       class="font-mono text-[10.5px] font-bold px-1.5"
                       :style="{
                         background: 'var(--sm-accent)',
