@@ -77,7 +77,7 @@ function openJira(e) {
         : lastPointed
           ? '0 0 0 2px var(--sm-accent)'
           : 'none',
-      opacity: dragDisabled && !highlighted && !lastPointed ? 0.4 : 1,
+      opacity: 1,
     }"
   >
     <!-- Tag color stripe -->
