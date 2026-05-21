@@ -7,6 +7,7 @@ const {
   touchParticipant,
   safeJsonParse,
   OFFLINE_THRESHOLD_S,
+  ENDED_SESSION_RETENTION_MS,
 } = require('../db');
 const { generateRoomCode } = require('../utils/roomCodeGenerator');
 const crypto = require('crypto');
@@ -911,6 +912,13 @@ router.get('/:roomCode/report', async (req, res) => {
       comments: commentsByTask[task.id] || [],
     }));
 
+    // The session is purged ENDED_SESSION_RETENTION_MS after it was ended;
+    // expose the absolute delete time so the report can warn viewers.
+    // ended_at is stored as a SQLite UTC timestamp (no zone suffix).
+    const deleteAt = new Date(
+      new Date(session.ended_at + 'Z').getTime() + ENDED_SESSION_RETENTION_MS
+    ).toISOString();
+
     res.json({
       session: {
         ...session,
@@ -920,6 +928,7 @@ router.get('/:roomCode/report', async (req, res) => {
       columns,
       tasks: processedTasks,
       tags,
+      deleteAt,
     });
   } catch (err) {
     console.error('Error fetching report:', err);

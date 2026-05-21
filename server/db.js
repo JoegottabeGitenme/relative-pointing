@@ -5,6 +5,14 @@ const fs = require('fs');
 // Session inactivity timeout (15 minutes)
 const SESSION_TIMEOUT_MS = 15 * 60 * 1000;
 
+// Retention for sessions that have been explicitly ended: the report stays
+// available for this long after ended_at, then the session is purged.
+// Configurable via env (hours); defaults to 12.
+const ENDED_SESSION_RETENTION_HOURS =
+  parseFloat(process.env.ENDED_SESSION_RETENTION_HOURS) || 12;
+const ENDED_SESSION_RETENTION_MS =
+  ENDED_SESSION_RETENTION_HOURS * 60 * 60 * 1000;
+
 // Offline threshold drives the grayscale "offline" badge in the UI
 // (configurable via env for testing). Turns are never auto-skipped or
 // auto-transferred — ownership and turn rotation stay fully user-driven.
@@ -262,23 +270,49 @@ function runMigrations(callback) {
   });
 }
 
-// Clean up expired sessions (inactive for more than SESSION_TIMEOUT_MS)
-function cleanupExpiredSessions() {
-  // Format cutoff time to match SQLite's CURRENT_TIMESTAMP format (YYYY-MM-DD HH:MM:SS)
-  const cutoffDate = new Date(Date.now() - SESSION_TIMEOUT_MS);
-  const cutoffTime = cutoffDate
+// Format a Date to match SQLite's CURRENT_TIMESTAMP format (YYYY-MM-DD HH:MM:SS)
+function toSqliteTimestamp(date) {
+  return date
     .toISOString()
     .replace('T', ' ')
     .replace(/\.\d{3}Z$/, '');
+}
+
+// Clean up sessions in two cases:
+//   1. Active-but-abandoned sessions inactive for more than SESSION_TIMEOUT_MS
+//      (never explicitly ended).
+//   2. Ended sessions older than ENDED_SESSION_RETENTION_MS — their report has
+//      been available long enough and is now purged.
+function cleanupExpiredSessions() {
+  const inactiveCutoff = toSqliteTimestamp(
+    new Date(Date.now() - SESSION_TIMEOUT_MS)
+  );
+  const endedCutoff = toSqliteTimestamp(
+    new Date(Date.now() - ENDED_SESSION_RETENTION_MS)
+  );
 
   db.run(
     `DELETE FROM sessions WHERE last_activity_at IS NOT NULL AND last_activity_at < ? AND ended_at IS NULL`,
-    [cutoffTime],
+    [inactiveCutoff],
     function (err) {
       if (err) {
-        console.error('Error cleaning up expired sessions:', err);
+        console.error('Error cleaning up inactive sessions:', err);
       } else if (this.changes > 0) {
-        console.log(`Cleaned up ${this.changes} expired session(s)`);
+        console.log(`Cleaned up ${this.changes} inactive session(s)`);
+      }
+    }
+  );
+
+  db.run(
+    `DELETE FROM sessions WHERE ended_at IS NOT NULL AND ended_at < ?`,
+    [endedCutoff],
+    function (err) {
+      if (err) {
+        console.error('Error cleaning up ended sessions:', err);
+      } else if (this.changes > 0) {
+        console.log(
+          `Cleaned up ${this.changes} ended session(s) past retention`
+        );
       }
     }
   );
@@ -405,5 +439,6 @@ module.exports = {
   touchParticipant,
   safeJsonParse,
   SESSION_TIMEOUT_MS,
+  ENDED_SESSION_RETENTION_MS,
   OFFLINE_THRESHOLD_S,
 };

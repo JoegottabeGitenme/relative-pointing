@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useThemeStore } from '../stores/theme';
 import APIService from '../services/api';
@@ -17,6 +17,8 @@ const loading = ref(true);
 const error = ref(null);
 
 const session = ref(null);
+const deleteAt = ref(null);
+const now = ref(Date.now());
 const participants = ref([]);
 const columns = ref([]);
 const tasks = ref([]);
@@ -25,6 +27,35 @@ const selectedScale = ref('fibonacci');
 
 const userId = localStorage.getItem('userId');
 const isCreator = computed(() => userId === session.value?.creator_id);
+
+// Time left, in ms, until the server purges this ended session and its report.
+const msUntilDeletion = computed(() => {
+  if (!deleteAt.value) return null;
+  return new Date(deleteAt.value).getTime() - now.value;
+});
+
+// Live countdown string, ticking every second so it's visibly updating.
+const deletionCountdown = computed(() => {
+  if (msUntilDeletion.value === null) return '';
+  const msLeft = msUntilDeletion.value;
+  if (msLeft <= 0) return 'any moment now';
+  const totalSeconds = Math.floor(msLeft / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  if (hours > 0) return `${hours}h ${pad(minutes)}m ${pad(seconds)}s`;
+  if (minutes > 0) return `${minutes}m ${pad(seconds)}s`;
+  return `${seconds}s`;
+});
+
+// Switch the banner to a red/urgent style within the final hour.
+const deletionUrgent = computed(
+  () =>
+    msUntilDeletion.value !== null && msUntilDeletion.value <= 60 * 60 * 1000
+);
+
+let countdownTimer = null;
 
 const SCALE_OPTIONS = [
   { value: 'fibonacci', label: 'Fibonacci (1, 2, 3, 5, 8, 13...)' },
@@ -218,6 +249,7 @@ async function fetchReport() {
   try {
     const data = await APIService.getReport(roomCode.value);
     session.value = data.session;
+    deleteAt.value = data.deleteAt || null;
     participants.value = data.participants || [];
     columns.value = data.columns || [];
     tasks.value = data.tasks || [];
@@ -278,7 +310,17 @@ function exportCSV() {
   URL.revokeObjectURL(url);
 }
 
-onMounted(fetchReport);
+onMounted(() => {
+  fetchReport();
+  // Tick every second so the countdown is visibly active.
+  countdownTimer = setInterval(() => {
+    now.value = Date.now();
+  }, 1000);
+});
+
+onUnmounted(() => {
+  if (countdownTimer) clearInterval(countdownTimer);
+});
 </script>
 
 <template>
@@ -367,6 +409,32 @@ onMounted(fetchReport);
         </button>
       </div>
     </header>
+
+    <!-- Retention warning: this ended session is purged after the retention
+         window; the banner turns red in the final hour. -->
+    <div
+      v-if="deletionCountdown"
+      class="flex items-center gap-2 px-8 py-2.5 text-[12px]"
+      :style="{
+        background: deletionUrgent
+          ? 'rgba(239, 68, 68, 0.14)'
+          : 'var(--sm-warn-bg, rgba(234, 179, 8, 0.12))',
+        borderBottom: deletionUrgent
+          ? '1px solid rgba(239, 68, 68, 0.5)'
+          : '1px solid var(--sm-border)',
+        color: deletionUrgent ? '#ef4444' : 'var(--sm-muted)',
+      }"
+    >
+      <span>⚠</span>
+      <span>
+        This report will be permanently deleted in
+        <strong
+          :style="{ color: deletionUrgent ? '#ef4444' : 'var(--sm-ink)' }"
+          >{{ deletionCountdown }}</strong
+        >
+        — export the CSV to keep a copy.
+      </span>
+    </div>
 
     <!-- Body -->
     <div class="flex-1 overflow-y-auto p-7 lg:p-8">
